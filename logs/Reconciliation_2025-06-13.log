@@ -1,0 +1,62 @@
+2025-06-13 12:50:09,634 - INFO - --------------------------------------------
+2025-06-13 12:50:09,635 - INFO - Entered Main Function...
+2025-06-13 12:50:10,214 - INFO - Records found within the date range. Running reconciliation...
+2025-06-13 12:50:10,214 - INFO - Entering Reconciliation for AEPS Service
+2025-06-13 12:50:10,217 - INFO - AEPS service: Column 'SERIALNUMBER' renamed to 'REFID'
+2025-06-13 12:50:10,217 - INFO - Fetching data from HUB for AEPS
+2025-06-13 12:50:10,218 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 12:50:12,098 - INFO - Fetching Data from EBO Wallet Transaction
+2025-06-13 12:50:12,099 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 12:50:13,219 - INFO - Filteration Starts for AEPS service
+2025-06-13 12:50:13,258 - INFO - Filteration Ends
+2025-06-13 12:50:13,258 - INFO - Reconciliation Ends
+2025-06-13 12:50:13,265 - INFO - Result sent as API
+2025-06-13 12:50:13,265 - INFO - ----------------------------------
+2025-06-13 13:10:18,185 - INFO - --------------------------------------------
+2025-06-13 13:10:18,188 - INFO - Entered Main Function...
+2025-06-13 13:10:18,486 - INFO - Records found within the date range. Running reconciliation...
+2025-06-13 13:10:18,489 - INFO - Entering Reconciliation for RECHARGE Service
+2025-06-13 13:10:18,492 - INFO - Recharge service: Column 'REFID' renamed to 'REFID'
+2025-06-13 13:10:18,494 - INFO - Fetching data from HUB for RECHARGE
+2025-06-13 13:10:18,499 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:10:35,726 - INFO - Fetching Data from EBO Wallet Transaction
+2025-06-13 13:10:35,727 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:10:36,636 - INFO - Entered Tenant filtering function
+2025-06-13 13:10:36,639 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:10:37,656 - INFO - Filteration Starts for RECHARGE service
+2025-06-13 13:10:37,858 - INFO - Filteration Ends
+2025-06-13 13:10:37,860 - INFO - Reconciliation Ends
+2025-06-13 13:10:37,925 - INFO - Result sent as API
+2025-06-13 13:10:37,925 - INFO - ----------------------------------
+2025-06-13 13:11:04,875 - INFO - --------------------------------------------
+2025-06-13 13:11:04,875 - INFO - Entered Main Function...
+2025-06-13 13:11:05,189 - INFO - Records found within the date range. Running reconciliation...
+2025-06-13 13:11:05,190 - INFO - Entering Reconciliation for RECHARGE Service
+2025-06-13 13:11:05,193 - INFO - Recharge service: Column 'REFID' renamed to 'REFID'
+2025-06-13 13:11:05,193 - INFO - Fetching data from HUB for RECHARGE
+2025-06-13 13:11:05,194 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:11:11,062 - INFO - Fetching Data from EBO Wallet Transaction
+2025-06-13 13:11:11,062 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:11:11,940 - INFO - Entered Tenant filtering function
+2025-06-13 13:11:11,942 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:11:12,975 - INFO - Filteration Starts for RECHARGE service
+2025-06-13 13:11:13,274 - INFO - Filteration Ends
+2025-06-13 13:11:13,275 - INFO - Reconciliation Ends
+2025-06-13 13:11:13,352 - INFO - Result sent as API
+2025-06-13 13:11:13,352 - INFO - ----------------------------------
+2025-06-13 13:13:13,071 - INFO - --------------------------------------------
+2025-06-13 13:13:13,072 - INFO - Entered Main Function...
+2025-06-13 13:13:14,156 - INFO - Records found within the date range. Running reconciliation...
+2025-06-13 13:13:14,156 - INFO - Entering Reconciliation for RECHARGE Service
+2025-06-13 13:13:14,159 - INFO - Recharge service: Column 'REFID' renamed to 'REFID'
+2025-06-13 13:13:14,159 - INFO - Fetching data from HUB for RECHARGE
+2025-06-13 13:13:14,160 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:13:20,328 - INFO - Fetching Data from EBO Wallet Transaction
+2025-06-13 13:13:20,329 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:13:21,146 - INFO - Entered Tenant filtering function
+2025-06-13 13:13:21,147 - INFO - Entered helper function to execute SQL with retry logic
+2025-06-13 13:13:22,083 - INFO - Filteration Starts for RECHARGE service
+2025-06-13 13:13:22,269 - INFO - Filteration Ends
+2025-06-13 13:13:22,270 - INFO - Reconciliation Ends
+2025-06-13 13:13:22,333 - INFO - Result sent as API
+2025-06-13 13:13:22,333 - INFO - ----------------------------------

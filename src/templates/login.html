@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>
+        async function validateUser() {
+            // Get user inputs
+            let Password = document.getElementById("password").value;
+            let Username = document.getElementById("user_name").value;;
+
+            if (!Password || !Username) {
+                showAlert("Please enter Username and Password.");
+                return;
+            }
+
+            // Create FormData object
+            let formData = new FormData();
+            formData.append("user_name", Username);
+            formData.append("password", Password);
+
+            try {
+                // Send request to Flask backend
+                let response = await fetch("/index", {
+                    method: "POST",
+                    body: formData
+                });
+                let json = await response.json();
+                console.log("🔵 Response:", json);
+
+                if (response.status === 200) {
+                    // Successful login
+                    document.getElementById("status").innerText = "✅ " + json.message;
+                    document.getElementById("status").style.color = "#30D158";
+
+                    // Redirect after 1 second
+                    setTimeout(() => {
+                        window.location.href = json.redirect;
+                    }, 500);
+                }
+                else if (response.status === 202) {
+                    let json = await response.json();
+                    document.getElementById("status").innerText = json.message;
+                    document.getElementById("status").style.color = "#FF453A";
+                }
+
+            } catch (error) {
+                console.error("❌ Error:", error);
+                document.getElementById("status").innerText = "Something went wrong!";
+                document.getElementById("status").style.color = "#FF453A";
+            }
+        }
+
+        function showAlert(message) {
+            const alert = document.createElement('div');
+            alert.className = 'apple-alert';
+            alert.innerHTML = `
+                <div class="apple-alert-content">
+                    <p>${message}</p>
+                </div>
+            `;
+            document.body.appendChild(alert);
+            setTimeout(() => {
+                alert.remove();
+            }, 3000);
+        }
+    </script>
+</head>
+
+<body>
+    <div class="apple-container">
+        <div class="apple-login-box">
+            <svg class="apple-logo" width="44" height="44" viewBox="0 0 44 44" fill="none"
+                xmlns="http://www.w3.org/2000/svg">
+                <path
+                    d="M22 44C34.1503 44 44 34.1503 44 22C44 9.84974 34.1503 0 22 0C9.84974 0 0 9.84974 0 22C0 34.1503 9.84974 44 22 44Z"
+                    fill="#0071E3" />
+                <path
+                    d="M22 33C27.5228 33 32 28.5228 32 23C32 17.4772 27.5228 13 22 13C16.4772 13 12 17.4772 12 23C12 28.5228 16.4772 33 22 33Z"
+                    fill="white" />
+            </svg>
+
+            <h1 class="apple-title">Sign In</h1>
+            <p class="apple-subtitle">Use your username and password</p>
+
+            <div class="apple-input-group">
+                <input id="user_name" class="apple-input" placeholder="Username" autofocus type="text">
+                <input id="password" class="apple-input" type="password" placeholder="Password">
+            </div>
+
+            <button id="login-btn" class="apple-button" onclick="validateUser()">LogIn</button>
+
+            <p id="status" class="apple-status"></p>
+        </div>
+    </div>
+</body>
+
+</html>
