@@ -319,15 +319,15 @@ def filtering_Data(df_db, df_excel, service_name, tenant_data):
         vend_succ_ihub_fail_not_in_ledger, required_columns
     )
     # SCENARIO 4 IHUB_FAIL_VEND_FAIL-NIL
-    #    ihub_vend_fail_not_in_ledger = matched[
-    #        (matched["VENDOR_STATUS"].str.lower() == "failed")
-    #        & (matched["IHUB_MASTER_STATUS"].str.lower() == "failed")
-    #        & (matched["IHUB_LEDGER_STATUS"].str.lower() == "no")
-    #    ].copy()
-    #    ihub_vend_fail_not_in_ledger["CATEGORY"] = "IHUB_FAIL_VEND_FAIL-NIL"
-    #    ihub_vend_fail_not_in_ledger = safe_column_select(
-    #         ihub_vend_fail_not_in_ledger, required_columns
-    #    )
+    ihub_vend_fail_not_in_ledger = matched[
+        (matched["VENDOR_STATUS"].str.lower() == "failed")
+        & (matched["IHUB_MASTER_STATUS"].str.lower() == "failed")
+        & (matched["IHUB_LEDGER_STATUS"].str.lower() == "no")
+    ].copy()
+    ihub_vend_fail_not_in_ledger["CATEGORY"] = "IHUB_FAIL_VEND_FAIL-NIL"
+    ihub_vend_fail_not_in_ledger = safe_column_select(
+         ihub_vend_fail_not_in_ledger, required_columns
+    )
     # SCENARIO 5 IHUB_INT_VEND_SUC-NIL
     ihub_initiate_vend_succes_not_in_ledger = matched[
         (matched["VENDOR_STATUS"].str.lower() == "success")
@@ -463,7 +463,7 @@ def filtering_Data(df_db, df_excel, service_name, tenant_data):
         vend_ihub_succ_not_in_ledger,
         vend_fail_ihub_succ_not_in_ledger,
         vend_succ_ihub_fail_not_in_ledger,
-        # ihub_vend_fail_not_in_ledger,
+        ihub_vend_fail_not_in_ledger,
         ihub_initiate_vend_succes_not_in_ledger,
         ihub_initiate_vend_fail_not_in_ledger,
         # vend_ihub_succ,
@@ -509,7 +509,7 @@ def filtering_Data(df_db, df_excel, service_name, tenant_data):
             "VEND_IHUB_SUC-NIL": vend_ihub_succ_not_in_ledger,
             "VEND_FAIL_IHUB_SUC-NIL": vend_fail_ihub_succ_not_in_ledger,
             "VEND_SUC_IHUB_FAIL-NIL": vend_succ_ihub_fail_not_in_ledger,
-            # "IHUB_VEND_FAIL-NIL": ihub_vend_fail_not_in_ledger,
+            "IHUB_VEND_FAIL-NIL": ihub_vend_fail_not_in_ledger,
             "IHUB_INT_VEND_SUC-NIL": ihub_initiate_vend_succes_not_in_ledger,
             "VEND_FAIL_IHUB_INT-NIL": ihub_initiate_vend_fail_not_in_ledger,
             # "VEND_IHUB_SUC": vend_ihub_succ,
@@ -938,13 +938,15 @@ def IMT_Service(start_date, end_date, df_excel, service_name):
 # BBPS FUNCTION
 def Bbps_service(start_date, end_date, df_excel, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
-    query = f"""
+    result = pd.DataFrame()
+    query = text(f"""
         SELECT
         mt2.TransactionRefNum as IHUB_REFERENCE,
         u.Username as IHUB_USERNAME,
         bbp.TxnRefId  as VENDOR_REFERENCE,
         mt2.TransactionStatus AS IHUB_MASTER_STATUS,
-        bbp.TransactionStatusType,bbp.HeadReferenceId ,
+        mt2.tenantDetailID as TENANT_ID,
+        bbp.TransactionStatusType as service_status ,bbp.HeadReferenceId ,
         CASE when iw.IHubReferenceId IS NOT NULL THEN 'Yes'
         ELSE 'NO'
         END AS IHUB_LEDGER_STATUS,
@@ -965,24 +967,59 @@ def Bbps_service(start_date, end_date, df_excel, service_name):
         where date(bbf.creationTs) between '{start_date}' and current_date()) as bf 
         on bf.HeadReferenceId  = bbp.HeadReferenceId
         WHERE DATE(bbp.CreationTs) BETWEEN '{start_date}' AND '{end_date}' 
-        """
-    # Reading data from Server
-    df_db = pd.read_sql(query, con=engine)
-    # mapping status name with enum
-    status_mapping = {
-        0: "unknown",
-        1: "success",
-        2: "failed",
-        3: "inprogress",
-        4: "partialsuccuess",
-    }
-    df_db[f"{service_name}_STATUS"] = df_db[f"{service_name}_STATUS"].apply(
-        lambda x: status_mapping.get(x, x)
-    )
-    # calling filtering function
-    result = filtering_Data(df_db, df_excel, service_name)
+        """)
+    params = {"start_date": start_date, "end_date": end_date}
+    try:
+        df_db = execute_sql_with_retry(
+            query,
+            params=params,
+        )
+        if df_db.empty:
+            logger.warning(f"No data returned for service:{service_name}")
+            return pd.DataFrame()    
+
+        # mapping status name with enum
+        status_mapping = {
+            0: "unknown",
+            1: "success",
+            2: "failed",
+            3: "inprogress",
+            4: "partialsuccuess",
+        }
+        df_db[f"{service_name}_STATUS"] = df_db["service_status"].apply(
+            lambda x: status_mapping.get(x, x)
+        )
+        df_db.drop(columns=["service_status"], inplace=True)
+        # calling filtering function
+        tenant_Id_mapping = {
+            1: "INET-CSC",
+            2: "ITI_ESEVA",
+            3: "UPCB",
+        }
+        df_db["TENANT_ID"] = (
+            df_db["TENANT_ID"].map(tenant_Id_mapping).fillna(df_db["TENANT_ID"])
+        )
+        ebo_result = get_ebo_wallet_data(start_date, end_date)
+        if ebo_result is not None and not ebo_result.empty:
+            result = pd.merge(
+                df_db,
+                ebo_result,
+                how="left",
+                left_on="IHUB_REFERENCE",
+                right_on="TransactionRefNum",
+                validate="one_to_one",
+            )
+        else:
+            logger.warning("No ebo wallet data returned")
+            result = df_db
+
+    except SQLAlchemyError as e:
+        logger.error(f"Databasr error in PAN_UTI_SERVICE():{e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in PAN_UTI_SERVICE():{e} ")
     return result
 
+   
 
 # ------------------------------------------------------------------------
 # PAN-NSDL Service function

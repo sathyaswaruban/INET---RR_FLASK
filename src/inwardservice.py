@@ -40,7 +40,10 @@ def inward_service_selection(
     logger.info(f"Entering Reconciliation for {service_name} Service")
 
     if service_name == "AEPS":
-        df_excel = df_excel.rename(columns={"UTR": "REFID", "DATE": "VENDOR_DATE"})
+        df_excel = df_excel.rename(
+            columns={"SERIALNUMBER": "REFID", "DATE": "VENDOR_DATE"}
+        )
+        df_excel["REFID"] = df_excel["REFID"].astype(str)
         logger.info("AEPS service: Column 'SERIALNUMBER' renamed to 'REFID'")
         # tenant_service_id = 159
         # Hub_service_id = 7374
@@ -352,7 +355,7 @@ def get_ebo_wallet_data(start_date, end_date):
         ewt.IHubReferenceId
     """
     )
-#hi
+    # hi
     try:
         # Call the retry-enabled query executor
         ebo_df = execute_sql_with_retry(
@@ -456,7 +459,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type, df_excel)
         """
         SELECT 
             mt2.TransactionRefNum AS IHUB_REFERENCE,
-            pat.BankRrn AS VENDOR_REFERENCE,
+            par.ReferenceNo  AS VENDOR_REFERENCE,
             mt2.TenantDetailId as TENANT_ID,
             u.UserName as IHUB_USERNAME,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
@@ -471,6 +474,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type, df_excel)
             ON mst.MasterTransactionId = mt2.Id
         LEFT JOIN ihubcore.PsAepsTransaction pat 
             ON pat.MasterSubTransactionId = mst.Id
+            JOIN ihubcore.PsAepsRequest par on par.id=pat.RequestId 
         LEFT JOIN tenantinetcsc.EboDetail ed
             ON mt2.EboDetailId = ed.Id
         LEFT JOIN tenantinetcsc.`User` u
@@ -514,7 +518,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type, df_excel)
             lambda x: status_mapping.get(x, x)
         )
         df_db.drop(columns=["service_status"], inplace=True)
-
+        df_db["VENDOR_REFERENCE"] = df_db["VENDOR_REFERENCE"].astype(str)
         # Tenant ID mapping
         tenant_Id_mapping = {
             1: "INET-CSC",
