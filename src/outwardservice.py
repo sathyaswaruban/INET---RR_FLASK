@@ -25,13 +25,17 @@ DB_RETRY_CONFIG = {
 @retry(**DB_RETRY_CONFIG)
 def execute_sql_with_retry(query, params=None):
     logger.info("Entered helper function to execute SQL with retry logic")
-    with engine.connect().execution_options(stream_results=True) as connection:
-        try:
-            df = pd.read_sql(query, con=connection, params=params)
+
+    try:
+        with engine.connect() as connection:
+            result = connection.execute(query, params or {})
+            df = pd.DataFrame(
+                result.fetchall(), columns=result.keys()
+            )  # Fully fetches all rows
             return df
-        except Exception as e:
-            logger.error(f"Error during SQL execution: {e}")
-            raise  # This will trigger retry if it's an OperationalError or DatabaseError
+    except Exception as e:
+        logger.error(f"Error during SQL execution: {e}")
+        raise
 
 
 # -----------------------------------------------------------------------------
@@ -43,20 +47,26 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
     result = None
 
     if service_name == "RECHARGE":
-        df_excel = df_excel.rename(columns={"REFID": "REFID", "DATE": "VENDOR_DATE"})
-        logger.info("Recharge service: Column 'REFID' renamed to 'REFID'")
-        tenant_service_id = 160
-        Hub_service_id = (
-            7378,
-            7379,
-        )
-        # Hub_service_id = ",".join(str(x) for x in Hub_service_id)
-        hub_data = recharge_Service(start_date, end_date, service_name)
-        tenant_data = tenant_filtering(
-            start_date, end_date, tenant_service_id, Hub_service_id
-        )
-        result = filtering_Data(hub_data, df_excel, service_name, tenant_data)
-
+        if "REFID" in df_excel:
+            df_excel = df_excel.rename(
+                columns={"REFID": "REFID", "DATE": "VENDOR_DATE"}
+            )
+            logger.info("Recharge service: Column 'REFID' renamed to 'REFID'")
+            tenant_service_id = 160
+            Hub_service_id = (
+                7378,
+                7379,
+            )
+            # Hub_service_id = ",".join(str(x) for x in Hub_service_id)
+            hub_data = recharge_Service(start_date, end_date, service_name)
+            tenant_data = tenant_filtering(
+                start_date, end_date, tenant_service_id, Hub_service_id
+            )
+            result = filtering_Data(hub_data, df_excel, service_name, tenant_data)
+        else:
+            logger.warning("Wrong File Uploaded")
+            message = "Wrong File Updloaded...!"
+            return message
     elif service_name == "IMT":
         df_excel = df_excel.rename(columns={"REFID": "REFID", "DATE": "VENDOR_DATE"})
         tenant_service_id = 158
@@ -326,7 +336,7 @@ def filtering_Data(df_db, df_excel, service_name, tenant_data):
     ].copy()
     ihub_vend_fail_not_in_ledger["CATEGORY"] = "IHUB_FAIL_VEND_FAIL-NIL"
     ihub_vend_fail_not_in_ledger = safe_column_select(
-         ihub_vend_fail_not_in_ledger, required_columns
+        ihub_vend_fail_not_in_ledger, required_columns
     )
     # SCENARIO 5 IHUB_INT_VEND_SUC-NIL
     ihub_initiate_vend_succes_not_in_ledger = matched[
@@ -452,7 +462,7 @@ def filtering_Data(df_db, df_excel, service_name, tenant_data):
     # )Ends---------------------------------------------------------------------------------------
 
     tenant_data["CATEGORY"] = "TENANT_DB_INTI - NOT_IN_IHUB"
-    print(not_in_vendor)
+    # print(not_in_vendor)
     # Combining all Scenarios
     combined = [
         not_in_vendor,
@@ -497,7 +507,7 @@ def filtering_Data(df_db, df_excel, service_name, tenant_data):
     else:
         combined = pd.concat(non_empty_dfs, ignore_index=True)
         logger.info("Filteration Ends")
-    
+
         # Mapping all Scenarios with keys as Dictionary to retrun as result
         mapping = {
             "not_in_vendor": not_in_vendor,
@@ -521,7 +531,7 @@ def filtering_Data(df_db, df_excel, service_name, tenant_data):
             "Total_Success_count": success_count,
             "Total_Failed_count": failed_count,
         }
-
+        print(mapping)
         return mapping
 
 
@@ -642,7 +652,7 @@ def tenant_filtering(start_date, end_date, tenant_service_id, hub_service_id):
         "tenant_service_id": tuple(tenant_service_id),
         "hub_service_id": tuple(hub_service_id),
     }
-    print(params)
+    # print(params)
     try:
         result = execute_sql_with_retry(query, params=params)
     except SQLAlchemyError as e:
@@ -939,7 +949,8 @@ def IMT_Service(start_date, end_date, df_excel, service_name):
 def Bbps_service(start_date, end_date, df_excel, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
     result = pd.DataFrame()
-    query = text(f"""
+    query = text(
+        f"""
         SELECT
         mt2.TransactionRefNum as IHUB_REFERENCE,
         u.Username as IHUB_USERNAME,
@@ -967,7 +978,8 @@ def Bbps_service(start_date, end_date, df_excel, service_name):
         where date(bbf.creationTs) between '{start_date}' and current_date()) as bf 
         on bf.HeadReferenceId  = bbp.HeadReferenceId
         WHERE DATE(bbp.CreationTs) BETWEEN '{start_date}' AND '{end_date}' 
-        """)
+        """
+    )
     params = {"start_date": start_date, "end_date": end_date}
     try:
         df_db = execute_sql_with_retry(
@@ -976,7 +988,7 @@ def Bbps_service(start_date, end_date, df_excel, service_name):
         )
         if df_db.empty:
             logger.warning(f"No data returned for service:{service_name}")
-            return pd.DataFrame()    
+            return pd.DataFrame()
 
         # mapping status name with enum
         status_mapping = {
@@ -1019,7 +1031,6 @@ def Bbps_service(start_date, end_date, df_excel, service_name):
         logger.error(f"Unexpected error in PAN_UTI_SERVICE():{e} ")
     return result
 
-   
 
 # ------------------------------------------------------------------------
 # PAN-NSDL Service function

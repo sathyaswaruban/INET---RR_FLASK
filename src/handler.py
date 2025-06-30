@@ -8,16 +8,6 @@ def handler(result, message, service_name):
     if isinstance(result, str):
         logger.info("Error result sent as API")
         logger.info("----------------------------------")
-        # if message == "Hurray there is no Mistmatch values in your DataSet..!":
-        #     return jsonify(
-        #         {
-        #             "isSuccess": True,
-        #             "data": result,
-        #             "message": message,
-        #             "service_name": service_name,
-        #         }
-        #     )
-        # else:
         return jsonify(
             {
                 "isSuccess": False,

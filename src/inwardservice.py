@@ -40,22 +40,27 @@ def inward_service_selection(
     logger.info(f"Entering Reconciliation for {service_name} Service")
 
     if service_name == "AEPS":
-        df_excel = df_excel.rename(
-            columns={"SERIALNUMBER": "REFID", "DATE": "VENDOR_DATE"}
-        )
-        df_excel["REFID"] = df_excel["REFID"].astype(str)
-        logger.info("AEPS service: Column 'SERIALNUMBER' renamed to 'REFID'")
-        # tenant_service_id = 159
-        # Hub_service_id = 7374
-        # Hub_service_id = ",".join(str(x) for x in Hub_service_id)
-        hub_data = aeps_Service(
-            start_date, end_date, service_name, transaction_type, df_excel
-        )
-        # tenant_data = tenant_filtering(
-        #     start_date, end_date, tenant_service_id, Hub_service_id
-        # )
-        result = filtering_Data(hub_data, df_excel, service_name)
-    return result
+        if "SERIALNUMBER" in df_excel:
+            df_excel = df_excel.rename(
+                columns={"SERIALNUMBER": "REFID", "DATE": "VENDOR_DATE"}
+            )
+            df_excel["REFID"] = df_excel["REFID"].astype(str)
+            logger.info("AEPS service: Column 'SERIALNUMBER' renamed to 'REFID'")
+            # tenant_service_id = 159
+            # Hub_service_id = 7374
+            # Hub_service_id = ",".join(str(x) for x in Hub_service_id)
+            hub_data = aeps_Service(
+                start_date, end_date, service_name, transaction_type, df_excel
+            )
+            # tenant_data = tenant_filtering(
+            #     start_date, end_date, tenant_service_id, Hub_service_id
+            # )
+            result = filtering_Data(hub_data, df_excel, service_name)
+            return result
+        else:
+            logger.warning("Wrong File Uploaded")
+            message = "Wrong File Updloaded...!"
+            return message
 
 
 def filtering_Data(df_db, df_excel, service_name):

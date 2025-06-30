@@ -27,6 +27,10 @@ CORS(
 )  # Adjust origin as needed
 app.permanent_session_lifetime = timedelta(minutes=30)
 
+# CORS(
+#     app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
+# )  # Adjust origin as needed
+# app.permanent_session_lifetime = timedelta(minutes=30)
 
 # Error handler for 404
 @app.errorhandler(404)
@@ -119,5 +123,5 @@ def reconciliation():
         return jsonify({"error": "Failed to process data"}), 500
 
 
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+# if __name__ == "__main__":
+#     app.run(debug=True, host="0.0.0.0", port=5000)
