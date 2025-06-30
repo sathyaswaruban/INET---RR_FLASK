@@ -4,11 +4,11 @@ from logging.handlers import TimedRotatingFileHandler
 import datetime
 
 # Ensure 'log' directory exists
-os.makedirs("D:/RR_FLASK/RR_Logs", exist_ok=True)
+os.makedirs("D:/INET---RR_FLASK/logs", exist_ok=True)
 
 # Define log file path inside 'log' folder
 log_filename = os.path.join(
-    "D:/RR_FLASK/RR_Logs", f"Reconciliation_{datetime.date.today()}.log"
+    "D:/INET---RR_FLASK/logs", f"Reconciliation_{datetime.date.today()}.log"
 )
 
 # Create a logger
