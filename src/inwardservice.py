@@ -62,6 +62,33 @@ def inward_service_selection(
             message = "Wrong File Updloaded...!"
             return message
 
+def getServiceId(MasterServiceId,MasterVendorId):
+    logger.info("Entered Get Service ID Function")
+    result = None
+
+    query = text("""
+        SELECT vssm.id FROM ihubcore.VendorSubServiceMapping vssm join ihubcore.MasterSubService mss  on vssm.MasterSubServiceId =mss.Id
+        join ihubcore.MasterService ms on ms.id=mss.MasterServiceId
+        join ihubcore.MasterVendor mv on vssm.MasterVendorId =mv.id
+        where ms.Id = :MasterServiceId and mv.id = :MasterVendorId
+        """)
+    params = {"MasterServiceId":MasterServiceId,"MasterVendorId" : MasterVendorId}
+    try:
+        df=execute_sql_with_retry(
+            query,
+            params=params,
+        )
+
+        if df.empty:
+            logger.warning("No values returned from Get Service Id Function")
+            return pd.DataFrame()
+        else:
+            result =  df
+    except SQLAlchemyError as e:
+        logger.error(f"Database error :{e}")
+    except Exception as e:
+        logger.error(f"Unexpected error : {e}")
+    return result
 
 def filtering_Data(df_db, df_excel, service_name):
     logger.info(f"Filteration Starts for {service_name} service")

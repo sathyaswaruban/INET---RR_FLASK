@@ -11,11 +11,14 @@ def main(from_date, to_date, service_name, file, transaction_type):
         logger.info("--------------------------------------------")
         logger.info("Entered Main Function...")
         df_excel = pd.read_excel(file, dtype=str)
-        if "DATE" in df_excel:
-            if service_name == "Pan_UTI":
+        if service_name == 'BBPS':
+            df_excel = df_excel.rename(columns={"Transaction Date":'DATE'}) 
+        elif service_name == "Pan_UTI":
                 df_excel = df_excel.rename(
                     columns={"Refrence No": "REFID", "trans Date": "DATE"}
                 )
+        if "DATE" in df_excel:
+            
 
             df_excel["DATE"] = pd.to_datetime(df_excel["DATE"], errors="coerce").dt.date
 
