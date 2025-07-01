@@ -21,7 +21,7 @@ DB_RETRY_CONFIG = {
     "reraise": True,
 }
 
-
+####
 @retry(**DB_RETRY_CONFIG)
 def execute_sql_with_retry(query, params=None):
     logger.info("Entered helper function to execute SQL with retry logic")
