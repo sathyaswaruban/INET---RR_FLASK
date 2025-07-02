@@ -11,22 +11,38 @@ def main(from_date, to_date, service_name, file, transaction_type):
         logger.info("--------------------------------------------")
         logger.info("Entered Main Function...")
         df_excel = pd.read_excel(file, dtype=str)
-        if service_name == 'BBPS':
-            df_excel = df_excel.rename(columns={"Transaction Date":'DATE'}) 
+        if service_name == "BBPS":
+            df_excel = df_excel.rename(columns={"Transaction Date": "VENDOR_DATE"})
+        elif service_name == "AEPS":
+            df_excel = df_excel.rename(
+                columns={"SERIALNUMBER": "REFID", "DATE": "VENDOR_DATE"}
+            )
+        elif service_name == "RECHARGE":
+            df_excel = df_excel.rename(columns={"DATE": "VENDOR_DATE"})
         elif service_name == "Pan_UTI":
-                df_excel = df_excel.rename(
-                    columns={"Refrence No": "REFID", "trans Date": "DATE"}
-                )
-        if "DATE" in df_excel:
-            
+            df_excel = df_excel.rename(
+                columns={"Refrence No": "REFID", "trans Date": "VENDOR_DATE"}
+            )
+        elif service_name == "MATM":
+            df_excel = df_excel.rename(
+                columns={
+                    "Date": "VENDOR_DATE",
+                    "TRANSACTIONSTATUS": "VENDOR_STATUS",
+                    "TID": "REFID",
+                }
+            )
+        if "VENDOR_DATE" in df_excel:
 
-            df_excel["DATE"] = pd.to_datetime(df_excel["DATE"], errors="coerce").dt.date
+            df_excel["VENDOR_DATE"] = pd.to_datetime(
+                df_excel["VENDOR_DATE"], errors="coerce"
+            ).dt.date
 
             from_date = pd.to_datetime(from_date).date()
             to_date = pd.to_datetime(to_date).date()
 
             Date_check = df_excel[
-                (df_excel["DATE"] >= from_date) & (df_excel["DATE"] <= to_date)
+                (df_excel["VENDOR_DATE"] >= from_date)
+                & (df_excel["VENDOR_DATE"] <= to_date)
             ]
 
             if Date_check.empty:
