@@ -149,14 +149,6 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
         #     start_date, end_date, tenant_service_id, Hub_service_id
         # )
         result = filtering_Data(hub_data, df_excel, service_name)
-
-    elif service_name == "PASSPORT":
-        tenant_service_id = ",".join(str(x) for x in tenant_service_id)
-        hub_data = passport_service(start_date, end_date, service_name)
-        # tenant_data = tenant_filtering(
-        #     start_date, end_date, tenant_service_id, Hub_service_id
-        # )
-        result = filtering_Data(hub_data, df_excel, service_name)
     else:
         logger.warning("OutwardService  function selection Error ")
         message = "Service Name Error..!"
