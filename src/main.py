@@ -10,15 +10,32 @@ def main(from_date, to_date, service_name, file, transaction_type):
 
         logger.info("--------------------------------------------")
         logger.info("Entered Main Function...")
-        df_excel = pd.read_excel(file, dtype=str)
+
+        df_excel = pd.read_excel(file)
+
         if service_name == "BBPS":
             df_excel = df_excel.rename(columns={"Transaction Date": "VENDOR_DATE"})
+        elif service_name == "PASSPORT":
+
+            df_excel = df_excel.rename(
+                columns={
+                    "IHUB REFERENCE ID": "REFID",
+                    "Application Date": "VENDOR_DATE",
+                    "Status": "VENDOR_STATUS",
+                }
+            )
         elif service_name == "AEPS":
             df_excel = df_excel.rename(
-                columns={"SERIALNUMBER": "REFID", "DATE": "VENDOR_DATE"}
+                columns={
+                    "SERIALNUMBER": "REFID",
+                    "DATE": "VENDOR_DATE",
+                    "STATUS": "VENDOR_STATUS",
+                }
             )
         elif service_name == "RECHARGE":
-            df_excel = df_excel.rename(columns={"DATE": "VENDOR_DATE"})
+            df_excel = df_excel.rename(
+                columns={"DATE": "VENDOR_DATE", "STATUS": "VENDOR_STATUS"}
+            )
         elif service_name == "Pan_UTI":
             df_excel = df_excel.rename(
                 columns={"Refrence No": "REFID", "trans Date": "VENDOR_DATE"}
@@ -31,6 +48,19 @@ def main(from_date, to_date, service_name, file, transaction_type):
                     "TID": "REFID",
                 }
             )
+        elif service_name == "LIC":
+            df_excel = df_excel.rename(
+                columns={
+                    "ORDERID": "REFID",
+                    "Date": "VENDOR_DATE",
+                    "STATUS": "VENDOR_STATUS",
+                }
+            )
+
+        else:
+            message = "Error in Service name..!"
+            return message
+
         if "VENDOR_DATE" in df_excel:
 
             df_excel["VENDOR_DATE"] = pd.to_datetime(
@@ -53,8 +83,8 @@ def main(from_date, to_date, service_name, file, transaction_type):
             logger.info(
                 "Records found within the date range. Running reconciliation..."
             )
-            print(service_name)
             if service_name in ["AEPS", "MATM", "UPIQR"]:
+                print(service_name)
                 result = inward_service_selection(
                     from_date, to_date, service_name, transaction_type, df_excel
                 )
@@ -62,10 +92,12 @@ def main(from_date, to_date, service_name, file, transaction_type):
                 "RECHARGE",
                 "IMT",
                 "Pan_NSDL",
-                "Pan_UTI",
+                "LIC",
                 "BBPS",
                 "PASSPORT",
+                "ABHIBUS",
             ]:
+                print(service_name)
                 result = outward_service_selection(
                     from_date, to_date, service_name, df_excel
                 )

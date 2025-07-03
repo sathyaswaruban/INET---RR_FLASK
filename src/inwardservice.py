@@ -41,7 +41,7 @@ def inward_service_selection(
         logger.info(f"Entering Reconciliation for {service_name} Service")
 
         if service_name == "AEPS":
-            if "SERIALNUMBER" in df_excel:
+            if "REFID" in df_excel:
                 df_excel["REFID"] = df_excel["REFID"].astype(str)
                 logger.info("AEPS service: Column 'SERIALNUMBER' renamed to 'REFID'")
                 # tenant_service_id = 159
