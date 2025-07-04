@@ -108,17 +108,17 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             message = "Wrong File Updloaded...!"
             return message
     elif service_name == "PASSPORT":
-        if "Passport Office" in df_excel:
-            values_mapping = {
-                "Appointment fixed": "success",
-                "HOLD": "success",
-                "REJECTED": "failed",
-            }
-            df_excel["VENDOR_STATUS"] = (
-                df_excel["VENDOR_STATUS"]
-                .fillna("unknown")
-                .apply(lambda x: values_mapping.get(x, x))
-            )
+        if "Value Date" in df_excel:
+            # values_mapping = {
+            #     "Appointment fixed": "success",
+            #     "HOLD": "success",
+            #     "REJECTED": "failed",
+            # }
+            # df_excel["VENDOR_STATUS"] = (
+            #     df_excel["VENDOR_STATUS"]
+            #     .fillna("unknown")
+            #     .apply(lambda x: values_mapping.get(x, x))
+            # )
             hub_data = passport_service(start_date, end_date, service_name)
             result = filtering_Data(hub_data, df_excel, service_name)
         else:
@@ -1059,10 +1059,10 @@ def passport_service(start_date, end_date, service_name):
         f"""
         SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
                mt2.TenantDetailId as TENANT_ID,   
-               pi.ReferenceId AS VENDOR_REFERENCE,
+               pi.BankReferenceNumber  AS VENDOR_REFERENCE,
                u.UserName as IHUB_USERNAME, 
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
-               pi.CreationTs AS SERVICE_DATE, 
+               pi.BankReferenceTs AS SERVICE_DATE, 
                pi.PassportInStatusType AS service_status,
                pi.Amount as AMOUNT,
                CASE
@@ -1073,9 +1073,9 @@ def passport_service(start_date, end_date, service_name):
                    WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'
                END AS TENANT_LEDGER_STATUS
-        FROM ihubcore.MasterTransaction mt2
-        LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
-        LEFT JOIN ihubcore.PassportIn pi ON pi.MasterSubTransactionId = mst.Id
+        FROM ihubcore.PassportIn pi 
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON pi.MasterSubTransactionId = mst.Id 
+        LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
         LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
         LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
@@ -1088,7 +1088,7 @@ def passport_service(start_date, end_date, service_name):
             FROM ihubcore.TenantWalletTransaction
             WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
         ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
-        WHERE DATE(pi.CreationTs) BETWEEN :start_date AND :end_date      
+        WHERE DATE(pi.BankReferenceTs) BETWEEN :start_date AND :end_date      
     """
     )
     params = {"start_date": start_date, "end_date": end_date}

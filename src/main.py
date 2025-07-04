@@ -25,8 +25,8 @@ def main(from_date, to_date, service_name, file, transaction_type):
 
             df_excel = df_excel.rename(
                 columns={
-                    "IHUB REFERENCE ID": "REFID",
-                    "Application Date": "VENDOR_DATE",
+                    "Ref No": "REFID",
+                    "Txn Date": "VENDOR_DATE",
                     "Status": "VENDOR_STATUS",
                 }
             )
