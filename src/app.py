@@ -75,7 +75,7 @@ def reconciliation():
         # Validate file
         if not file or file.filename == "":
             return jsonify({"error": "No file uploaded"}), 400
-        print(1)
+
         # Process data
         result = main(from_date, to_date, service_name, file, transaction_type)
         if isinstance(result, str):

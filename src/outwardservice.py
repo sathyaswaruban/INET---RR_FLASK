@@ -67,11 +67,11 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             # )
             result = filtering_Data(hub_data, df_excel, service_name)
         else:
-            logger.warning("Wrong File Uploaded")
+            logger.warning("Wrong File Uploaded in Recharge Service")
             message = "Wrong File Updloaded...!"
             return message
     elif service_name == "BBPS":
-        if "Transaction Ref ID" in df_excel:
+        if "REFID" in df_excel:
             df_excel = df_excel.rename(
                 columns={
                     "Transaction Ref ID": "REFID",
@@ -86,7 +86,7 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             }
             df_excel["VENDOR_STATUS"] = (
                 df_excel["VENDOR_STATUS"]
-                .fillna("")
+                .fillna("failed")
                 .apply(lambda x: values_mapping.get(x, "failed"))
             )
             # tenant_service_id = getServiceId(1, 2)
@@ -104,7 +104,7 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             # )
             result = filtering_Data(hub_data, df_excel, service_name)
         else:
-            logger.warning("Wrong File Uploaded")
+            logger.warning("Wrong File Uploaded BBPS Service")
             message = "Wrong File Updloaded...!"
             return message
     elif service_name == "PASSPORT":
@@ -116,13 +116,13 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             }
             df_excel["VENDOR_STATUS"] = (
                 df_excel["VENDOR_STATUS"]
-                .fillna("")
+                .fillna("unknown")
                 .apply(lambda x: values_mapping.get(x, x))
             )
             hub_data = passport_service(start_date, end_date, service_name)
             result = filtering_Data(hub_data, df_excel, service_name)
         else:
-            logger.warning("Wrong File Uploaded")
+            logger.warning("Wrong File Uploaded Passport service")
             message = "Wrong File Updloaded...!"
             return message
     elif service_name == "LIC":
@@ -138,17 +138,34 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
 
             result = filtering_Data(hub_data, df_cleaned, service_name)
         else:
-            logger.warning("Wrong File Uploaded")
+            logger.warning("Wrong File Uploaded LIC Service")
             message = "Wrong File Updloaded...!"
             return message
     elif service_name == "Pan_NSDL":
         # tenant_service_id = 201
         # Hub_service_id = 218
         hub_data = Pannsdl_service(start_date, end_date, service_name)
-        # tenant_data = tenant_filtering(
-        #     start_date, end_date, tenant_service_id, Hub_service_id
-        # )
         result = filtering_Data(hub_data, df_excel, service_name)
+    elif service_name == "ASTRO":
+        if "REFID" in df_excel:
+            # tenant_service_id = 201
+            # Hub_service_id = 218
+            values_mapping = {
+                "Processed": "success",
+                "Rolled Back": "intiated",
+            }
+            df_excel["VENDOR_STATUS"] = (
+                df_excel["VENDOR_STATUS"]
+                .fillna("unknown")
+                .apply(lambda x: values_mapping.get(x, x))
+            )
+            hub_data = astro_service(start_date, end_date, service_name)
+            result = filtering_Data(hub_data, df_excel, service_name)
+        else:
+            logger.warning("Wrong File Uploaded in Asrto service")
+            message = "Wrong File Updloaded...!"
+            return message
+
     else:
         logger.warning("OutwardService  function selection Error ")
         message = "Service Name Error..!"
@@ -1192,6 +1209,102 @@ def lic_service(start_date, end_date, service_name):
             0: "initiated",
             1: "success",
             2: "failed",
+        }
+        df_db[f"{service_name}_STATUS"] = df_db["service_status"].apply(
+            lambda x: status_mapping.get(x, x)
+        )
+        df_db.drop(columns=["service_status"], inplace=True)
+        # Tenant ID mapping
+        tenant_Id_mapping = {
+            1: "INET-CSC",
+            2: "ITI-ESEVA",
+            3: "UPCB",
+        }
+        df_db["TENANT_ID"] = (
+            df_db["TENANT_ID"].map(tenant_Id_mapping).fillna(df_db["TENANT_ID"])
+        )
+        # Get wallet data with retry
+        ebo_result = get_ebo_wallet_data(start_date, end_date)
+
+        if ebo_result is not None and not ebo_result.empty:
+            result = pd.merge(
+                df_db,
+                ebo_result,
+                how="left",
+                left_on="IHUB_REFERENCE",
+                right_on="TransactionRefNum",
+                validate="one_to_one",  # Add validation
+            )
+        else:
+            logger.warning("No ebo wallet data returned")
+            result = df_db
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in recharge_Service(): {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in recharge_Service(): {e}")
+
+    return result
+
+
+# ----------------------------------------------------------------------
+# Stro service Function
+def astro_service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f"""
+        SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               at2.OrderId AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               at2.CreationTs AS SERVICE_DATE, 
+               at2.AstroTransactionStatus AS service_status,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.MasterTransaction mt2
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN ihubcore.AstroTransaction at2 ON at2.MasterSubTransactionId = mst.Id
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(at2.CreationTs) BETWEEN :start_date AND :end_date      
+    """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+
+    try:
+
+        # Execute with retry logic
+        df_db = execute_sql_with_retry(
+            query,
+            params=params,
+        )
+
+        if df_db.empty:
+            logger.warning(f"No data returned for service: {service_name}")
+            return pd.DataFrame()
+        # Status mapping with fallback
+        status_mapping = {
+            0: "initiated",
+            1: "unknown",
+            2: "success",
         }
         df_db[f"{service_name}_STATUS"] = df_db["service_status"].apply(
             lambda x: status_mapping.get(x, x)

@@ -11,10 +11,16 @@ def main(from_date, to_date, service_name, file, transaction_type):
         logger.info("--------------------------------------------")
         logger.info("Entered Main Function...")
 
-        df_excel = pd.read_excel(file)
+        df_excel = pd.read_excel(file, dtype=str)
 
         if service_name == "BBPS":
-            df_excel = df_excel.rename(columns={"Transaction Date": "VENDOR_DATE"})
+            df_excel = df_excel.rename(
+                columns={
+                    "Transaction Date": "VENDOR_DATE",
+                    "Transaction Ref ID": "REFID",
+                    "NPCI Transaction Desc": "VENDOR_STATUS",
+                }
+            )
         elif service_name == "PASSPORT":
 
             df_excel = df_excel.rename(
@@ -56,6 +62,14 @@ def main(from_date, to_date, service_name, file, transaction_type):
                     "STATUS": "VENDOR_STATUS",
                 }
             )
+        elif service_name == "ASTRO":
+            df_excel = df_excel.rename(
+                columns={
+                    "Order ID": "REFID",
+                    "Date": "VENDOR_DATE",
+                    "Transaction Status": "VENDOR_STATUS",
+                }
+            )
 
         else:
             message = "Error in Service name..!"
@@ -84,7 +98,7 @@ def main(from_date, to_date, service_name, file, transaction_type):
                 "Records found within the date range. Running reconciliation..."
             )
             if service_name in ["AEPS", "MATM", "UPIQR"]:
-                print(service_name)
+                print("inward_service:", service_name)
                 result = inward_service_selection(
                     from_date, to_date, service_name, transaction_type, df_excel
                 )
@@ -96,8 +110,9 @@ def main(from_date, to_date, service_name, file, transaction_type):
                 "BBPS",
                 "PASSPORT",
                 "ABHIBUS",
+                "ASTRO",
             ]:
-                print(service_name)
+                print("outward_service:", service_name)
                 result = outward_service_selection(
                     from_date, to_date, service_name, df_excel
                 )
