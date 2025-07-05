@@ -46,7 +46,6 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
     start_date = start_date
     end_date = end_date
     result = None
-
     if service_name == "RECHARGE":
         if "REFID" in df_excel:
             logger.info("Recharge service: Column 'REFID' renamed to 'REFID'")
@@ -141,11 +140,20 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             logger.warning("Wrong File Uploaded LIC Service")
             message = "Wrong File Updloaded...!"
             return message
-    elif service_name == "Pan_NSDL":
-        # tenant_service_id = 201
-        # Hub_service_id = 218
-        hub_data = Pannsdl_service(start_date, end_date, service_name)
-        result = filtering_Data(hub_data, df_excel, service_name)
+    elif service_name == "PANUTI":
+        if "Trans No" in df_excel:
+            # tenant_service_id = 201
+            # Hub_service_id = 218
+            df_excel["VENDOR_STATUS"] = df_excel["VENDOR_STATUS"].astype(str)
+            df_excel["VENDOR_STATUS"] = df_excel["VENDOR_STATUS"].apply(
+                lambda x: "failed" if "refunded" in x.lower() else "success"
+            )
+            hub_data = Panuti_service(start_date, end_date, service_name)
+            result = filtering_Data(hub_data, df_excel, service_name)
+        else:
+            logger.warning("Wrong File Uploaded PANUTI Service")
+            message = "Wrong File Updloaded...!"
+            return message
     elif service_name == "ASTRO":
         if "REFID" in df_excel:
             # tenant_service_id = 201
@@ -210,7 +218,8 @@ def getServiceId(MasterServiceId, MasterVendorId):
 # Filtering Function
 def filtering_Data(df_db, df_excel, service_name):
     logger.info(f"Filteration Starts for {service_name} service")
-
+    Excel_count = len(df_excel)
+    Hub_count = df_db.shape[0]
     mapping = None
     # converting the date of both db and excel to string
     df_db["SERVICE_DATE"] = df_db["SERVICE_DATE"].dt.strftime("%Y-%m-%d")
@@ -284,7 +293,7 @@ def filtering_Data(df_db, df_excel, service_name):
     ).copy()
     matched["CATEGORY"] = "MATCHED"
     matched = safe_column_select(matched, required_columns)
-    # print(matched.columns)
+    print(matched[["IHUB_MASTER_STATUS", "VENDOR_STATUS"]].head(10))
 
     # 5. Filtering Data that Mismatched in both Ihub Portal and Vendor Xl as : Mismatched
     mismatched = matched[
@@ -293,15 +302,15 @@ def filtering_Data(df_db, df_excel, service_name):
     ].copy()
     mismatched["CATEGORY"] = "MISMATCHED"
     mismatched = safe_column_select(mismatched, required_columns)
-
+    print(matched.shape[0])
     # 6. Getting total count of success and failure data
     matched_success_status = matched[
         (matched["IHUB_MASTER_STATUS"].str.lower() == "success")
         & (matched["VENDOR_STATUS"].str.lower() == "success")
     ]
-
+    print(matched_success_status[["IHUB_MASTER_STATUS", "VENDOR_STATUS"]])
     success_count = matched_success_status.shape[0]
-
+    print(success_count)
     matched_failed_status = matched[
         (matched["IHUB_MASTER_STATUS"].str.lower() == "failed")
         & (matched["VENDOR_STATUS"].str.lower() == "failed")
@@ -497,6 +506,8 @@ def filtering_Data(df_db, df_excel, service_name):
             "VEND_FAIL_IHUB_INT": ihub_initiate_vend_fail,
             "Total_Success_count": success_count,
             "Total_Failed_count": failed_count,
+            "Excel_value_count":Excel_count,
+            "HUB_Value_count":Hub_count,
         }
         # print(mapping)
         return mapping
@@ -830,31 +841,40 @@ def Panuti_service(start_date, end_date, service_name):
     result = pd.DataFrame()
     query = text(
         f"""
-        SELECT 
-    ut.ApplicationNumber AS VENDOR_REFERENCE,
-    tu.UserName as IHUB_USERNAME,
-    ut.UTITSLTransID_Gateway AS UTITSLTrans_id,
-    mt.TransactionRefNum AS IHUB_REFERENCE,
-    mt.tenantDetailID as TENANT_ID,
-    mt.TransactionStatus AS IHUB_MASTER_STATUS,
-    ut.CreationTs as SERVICE_DATE,
-    ut.TransactionStatusType AS service_status,
-    CASE 
-        WHEN a.IHubReferenceId IS NOT NULL THEN 'Yes'
-        ELSE 'No'
-    END AS IHUB_LEDGER_STATUS
-    FROM ihubcore.UTIITSLTTransaction ut
-    LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.Id = ut.MasterSubTransactionId
-    LEFT JOIN ihubcore.MasterTransaction mt ON mt.Id = mst.MasterTransactionId
-    LEFT JOIN tenantinetcsc.EboDetail ed ON ed.Id = mt.EboDetailId
-    LEFT JOIN tenantinetcsc.`User` tu ON tu.Id = ed.UserId
-    LEFT JOIN (
-        SELECT DISTINCT iwt.IHubReferenceId  
-        FROM ihubcore.IHubWalletTransaction iwt  
-        WHERE DATE(iwt.creationTs) BETWEEN :start_date AND CURRENT_DATE()
-    ) a ON a.IHubReferenceId = mt.TransactionRefNum
-    WHERE DATE(ut.CreationTs) BETWEEN :start_date and :end_date
-            """
+       SELECT 
+               mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               u2.ApplicationNumber  AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               u2.CreationTs  AS SERVICE_DATE, 
+               u2.TransactionStatusType AS service_status,
+               u2.TransactionAmount  as AMOUNT,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.UTIITSLTTransaction u2  
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON u2.MasterSubTransactionId = mst.Id 
+        LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(u2.CreationTs) BETWEEN :start_date and :end_date
+        """
     )
     params = {"start_date": start_date, "end_date": end_date}
 
@@ -869,11 +889,8 @@ def Panuti_service(start_date, end_date, service_name):
             return pd.DataFrame()
         # mapping status name with enum
         status_mapping = {
-            0: "initiated",
+            0: "failed",
             1: "success",
-            2: "failed",
-            3: "inprogress",
-            4: "partial success",
         }
         df_db[f"{service_name}_STATUS"] = df_db["service_status"].apply(
             lambda x: status_mapping.get(x, x)

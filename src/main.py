@@ -42,9 +42,13 @@ def main(from_date, to_date, service_name, file, transaction_type):
             df_excel = df_excel.rename(
                 columns={"DATE": "VENDOR_DATE", "STATUS": "VENDOR_STATUS"}
             )
-        elif service_name == "Pan_UTI":
+        elif service_name == "PANUTI":
             df_excel = df_excel.rename(
-                columns={"Refrence No": "REFID", "trans Date": "VENDOR_DATE"}
+                columns={
+                    "Refrence No": "REFID",
+                    "trans Date": "VENDOR_DATE",
+                    "Payment Status": "VENDOR_STATUS",
+                }
             )
         elif service_name == "MATM":
             df_excel = df_excel.rename(
@@ -70,7 +74,6 @@ def main(from_date, to_date, service_name, file, transaction_type):
                     "Transaction Status": "VENDOR_STATUS",
                 }
             )
-
         else:
             message = "Error in Service name..!"
             return message
@@ -111,6 +114,7 @@ def main(from_date, to_date, service_name, file, transaction_type):
                 "PASSPORT",
                 "ABHIBUS",
                 "ASTRO",
+                "PANUTI",
             ]:
                 print("outward_service:", service_name)
                 result = outward_service_selection(
