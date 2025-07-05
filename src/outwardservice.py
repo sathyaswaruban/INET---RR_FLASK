@@ -293,7 +293,7 @@ def filtering_Data(df_db, df_excel, service_name):
     ).copy()
     matched["CATEGORY"] = "MATCHED"
     matched = safe_column_select(matched, required_columns)
-    print(matched[["IHUB_MASTER_STATUS", "VENDOR_STATUS"]].head(10))
+    # print(matched[["IHUB_MASTER_STATUS", "VENDOR_STATUS"]].head(10))
 
     # 5. Filtering Data that Mismatched in both Ihub Portal and Vendor Xl as : Mismatched
     mismatched = matched[
@@ -302,15 +302,15 @@ def filtering_Data(df_db, df_excel, service_name):
     ].copy()
     mismatched["CATEGORY"] = "MISMATCHED"
     mismatched = safe_column_select(mismatched, required_columns)
-    print(matched.shape[0])
+    # print(matched.shape[0])
     # 6. Getting total count of success and failure data
     matched_success_status = matched[
         (matched["IHUB_MASTER_STATUS"].str.lower() == "success")
         & (matched["VENDOR_STATUS"].str.lower() == "success")
     ]
-    print(matched_success_status[["IHUB_MASTER_STATUS", "VENDOR_STATUS"]])
+    # print(matched_success_status[["IHUB_MASTER_STATUS", "VENDOR_STATUS"]])
     success_count = matched_success_status.shape[0]
-    print(success_count)
+    # print(success_count)
     matched_failed_status = matched[
         (matched["IHUB_MASTER_STATUS"].str.lower() == "failed")
         & (matched["VENDOR_STATUS"].str.lower() == "failed")
