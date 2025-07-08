@@ -62,20 +62,15 @@ def inward_service_selection(
             if "REFID" in df_excel:
                 df_cleaned = df_excel[
                     ~(
-                        df_excel["DEVICE"].isna()
-                        & df_excel["CUSTOMERIDENTIFICATION"].isna()
+                        df_excel["orderID"].isna()
                         & df_excel["REFID"].isna()
+                        & df_excel["Device"].isna()
                     )
                 ].copy()
-                df_cleaned["REFID"] = df_excel["REFID"].astype(str)
-                values_mapping = {
-                    "AUTH_DECLINE": "failed",
-                    "AUTH_SUCCESS": "success",
-                    "FAILED": "failed",
-                }
-                df_cleaned["VENDOR_STATUS"] = df_cleaned["VENDOR_STATUS"].apply(
-                    lambda x: values_mapping.get(x, x)
-                )
+                # df_cleaned["REFID"] = df_excel["REFID"].astype(str)
+                df_cleaned["VENDOR_STATUS"] = df_cleaned["VENDOR_STATUS"].replace(
+                    {"Transaction Successful.": "success"}
+                ).fillna("failed")
                 hub_data = matm_Service(start_date, end_date, service_name)
                 result = filtering_Data(hub_data, df_cleaned, service_name)
             else:
@@ -665,7 +660,7 @@ def matm_Service(start_date, end_date, service_name):
     query = text(
         """ SELECT 
             mt2.TransactionRefNum AS IHUB_REFERENCE,
-            iwmt.BankTransactionNo   AS VENDOR_REFERENCE,
+            iwmt.Rrn AS VENDOR_REFERENCE,
             mt2.TenantDetailId as TENANT_ID,
             u.UserName as IHUB_USERNAME,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
