@@ -3,6 +3,7 @@ import pandas as pd
 from logger_config import logger
 from inwardservice import inward_service_selection
 from handler import handler
+from upiQrfiltering import upiQr_service_selection
 
 
 def main(from_date, to_date, service_name, file, transaction_type):
@@ -74,6 +75,15 @@ def main(from_date, to_date, service_name, file, transaction_type):
                     "Transaction Status": "VENDOR_STATUS",
                 }
             )
+        elif service_name == "UPIQR":
+            df_excel = df_excel.rename(
+                columns={
+                    "TRNSCTN_NMBR": "REFID",
+                    "ATHRSD_DATE": "VENDOR_DATE",
+                    "Status": "VENDOR_STATUS",
+                    # "Settled_Amount": "AMOUNT",
+                }
+            )
         else:
             message = "Error in Service name..!"
             return message
@@ -81,7 +91,7 @@ def main(from_date, to_date, service_name, file, transaction_type):
         if "VENDOR_DATE" in df_excel:
 
             df_excel["VENDOR_DATE"] = pd.to_datetime(
-                df_excel["VENDOR_DATE"], errors="coerce"
+                df_excel["VENDOR_DATE"], errors="coerce", dayfirst=True
             ).dt.date
 
             from_date = pd.to_datetime(from_date).date()
@@ -100,7 +110,7 @@ def main(from_date, to_date, service_name, file, transaction_type):
             logger.info(
                 "Records found within the date range. Running reconciliation..."
             )
-            if service_name in ["AEPS", "MATM", "UPIQR"]:
+            if service_name in ["AEPS", "MATM"]:
                 print("inward_service:", service_name)
                 result = inward_service_selection(
                     from_date, to_date, service_name, transaction_type, df_excel
@@ -118,6 +128,11 @@ def main(from_date, to_date, service_name, file, transaction_type):
             ]:
                 print("outward_service:", service_name)
                 result = outward_service_selection(
+                    from_date, to_date, service_name, df_excel
+                )
+            elif service_name == "UPIQR":
+                print("UpiQr_service:", service_name)
+                result = upiQr_service_selection(
                     from_date, to_date, service_name, df_excel
                 )
             else:

@@ -114,8 +114,7 @@ def reconciliation():
             return handler(result, message, service_name)
     except Exception as e:
         logger.error(f"Reconciliation error: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({"error": "Failed to process data"}), 500
-
-
+        message = "Failed to process data"
+        return handler(result,message,service_name)
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

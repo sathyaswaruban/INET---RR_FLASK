@@ -80,7 +80,7 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             values_mapping = {
                 "Successful": "success",
                 "Failure": "failed",
-                "Transaction timed out": "failed",
+                "Transaction timed out": "Timed out",
                 "": "failed",
             }
             df_excel["VENDOR_STATUS"] = (

@@ -55,7 +55,7 @@ def inward_service_selection(
                 # )
                 result = filtering_Data(hub_data, df_excel, service_name)
             else:
-                logger.warning("Wrong File Uploaded")
+                logger.warning("Wrong File Uploaded in AEPS Function")
                 message = "Wrong File Updloaded...!"
                 return message
         elif service_name == "MATM":
@@ -79,7 +79,7 @@ def inward_service_selection(
                 hub_data = matm_Service(start_date, end_date, service_name)
                 result = filtering_Data(hub_data, df_cleaned, service_name)
             else:
-                logger.warning("Wrong File Uploaded")
+                logger.warning("Wrong File Uploaded in MATM function")
                 message = "Wrong File Updloaded...!"
                 return message
         else:
@@ -127,6 +127,8 @@ def filtering_Data(df_db, df_excel, service_name):
     try:
         logger.info(f"Filteration Starts for {service_name} service")
         mapping = None
+        Excel_count = len(df_excel)
+        Hub_count = df_db.shape[0]
         # converting the date of both db and excel to string
         df_db["SERVICE_DATE"] = df_db["SERVICE_DATE"].dt.strftime("%Y-%m-%d")
         # tenant_data["SERVICE_DATE"] = tenant_data["SERVICE_DATE"].dt.strftime("%Y-%m-%d")
@@ -134,25 +136,37 @@ def filtering_Data(df_db, df_excel, service_name):
         df_excel["VENDOR_DATE"] = pd.to_datetime(
             df_excel["VENDOR_DATE"], errors="coerce"
         ).dt.strftime("%Y-%m-%d")
+        if service_name == "UPIQR":
+            status_mapping = {
+                0: "success",
+                5: "inprogress",
+                7: "failed",
+                255: "intiated",
+            }
 
-        # Mapping names with corresponding values
-        status_mapping = {
-            0: "initiated",
-            1: "success",
-            2: "failed",
-            3: "inprogress",
-            4: "partial success",
-        }
+            columns_to_update = ["IHUB_MASTER_STATUS"]
+            df_db[columns_to_update] = df_db[columns_to_update].apply(
+                lambda x: x.map(status_mapping).fillna(x)
+            )
 
-        columns_to_update = ["IHUB_MASTER_STATUS"]
-        df_db[columns_to_update] = df_db[columns_to_update].apply(
-            lambda x: x.map(status_mapping).fillna(x)
-        )
+        else:
+            # Mapping names with corresponding values
+            status_mapping = {
+                0: "initiated",
+                1: "success",
+                2: "failed",
+                3: "inprogress",
+                4: "partial success",
+            }
+
+            columns_to_update = ["IHUB_MASTER_STATUS"]
+            df_db[columns_to_update] = df_db[columns_to_update].apply(
+                lambda x: x.map(status_mapping).fillna(x)
+            )
 
         # tenant_data["TENANT_STATUS"] = tenant_data["TENANT_STATUS"].apply(
         #     lambda x: status_mapping.get(x, x)
         # )
-
 
         # function to select only required cols and make it as df
         def safe_column_select(df, columns):
@@ -203,7 +217,6 @@ def filtering_Data(df_db, df_excel, service_name):
         )
         matched["VENDOR_STATUS"] = matched["VENDOR_STATUS"].astype(str)
         # print(matched.columns.tolist())
-    
 
         mismatched = matched[
             matched[f"{service_name}_STATUS"].str.lower()
@@ -258,7 +271,11 @@ def filtering_Data(df_db, df_excel, service_name):
         # SCENARIO 5 IHUB_INT_VEND_SUC-NIL
         ihub_initiate_vend_succes_not_in_ledger = matched[
             (matched["VENDOR_STATUS"].str.lower() == "success")
-            & (matched["IHUB_MASTER_STATUS"].str.lower() == "initiated")
+            & (
+                matched["IHUB_MASTER_STATUS"]
+                .str.lower()
+                .isin(["initiated", "inprogress"])
+            )
             & (matched["IHUB_LEDGER_STATUS"].str.lower() == "no")
         ].copy()
         ihub_initiate_vend_succes_not_in_ledger["CATEGORY"] = "IHUB_INT_VEND_SUC-NIL"
@@ -268,7 +285,11 @@ def filtering_Data(df_db, df_excel, service_name):
         # SCENARIO 6 VEND_FAIL_IHUB_INT-NIL
         ihub_initiate_vend_fail_not_in_ledger = matched[
             (matched["VENDOR_STATUS"].str.lower() == "failed")
-            & (matched["IHUB_MASTER_STATUS"].str.lower() == "initiated")
+            & (
+                matched["IHUB_MASTER_STATUS"]
+                .str.lower()
+                .isin(["initiated", "inprogress"])
+            )
             & (matched["IHUB_LEDGER_STATUS"].str.lower() == "no")
         ].copy()
         ihub_initiate_vend_fail_not_in_ledger["CATEGORY"] = " VEND_FAIL_IHUB_INT-NIL"
@@ -303,7 +324,11 @@ def filtering_Data(df_db, df_excel, service_name):
         # SCENARIO 5 IHUB_INT_VEND_SUC IL
         ihub_initiate_vend_succes = matched[
             (matched["VENDOR_STATUS"].str.lower() == "success")
-            & (matched["IHUB_MASTER_STATUS"].str.lower() == "initiated")
+            & (
+                matched["IHUB_MASTER_STATUS"]
+                .str.lower()
+                .isin(["initiated", "inprogress"])
+            )
             & (matched["IHUB_LEDGER_STATUS"].str.lower() == "yes")
         ].copy()
         ihub_initiate_vend_succes["CATEGORY"] = "IHUB_INT_VEND_SUC"
@@ -314,7 +339,11 @@ def filtering_Data(df_db, df_excel, service_name):
         # SCENARIO 6 VEND_FAIL_IHUB_INT IL
         ihub_initiate_vend_fail = matched[
             (matched["VENDOR_STATUS"].str.lower() == "failed")
-            & (matched["IHUB_MASTER_STATUS"].str.lower() == "initiated")
+            & (
+                matched["IHUB_MASTER_STATUS"]
+                .str.lower()
+                .isin(["initiated", "inprogress"])
+            )
             & (matched["IHUB_LEDGER_STATUS"].str.lower() == "yes")
         ].copy()
         ihub_initiate_vend_fail["CATEGORY"] = "VEND_FAIL_IHUB_INT"
@@ -391,11 +420,16 @@ def filtering_Data(df_db, df_excel, service_name):
                 "VEND_FAIL_IHUB_INT": ihub_initiate_vend_fail,
                 "Total_Success_count": success_count,
                 "Total_Failed_count": failed_count,
+                "Excel_value_count": Excel_count,
+                "HUB_Value_count": Hub_count,
             }
 
             return mapping
     except Exception as e:
+        logger.warning("Error inside Filtering Function:", e)
         print("Error inside Filtering Function:", e)
+        message = "Error in Filteration"
+        return message
 
 
 # Ebo Wallet Amount and commission  Debit credit check function  -------------------------------------------
@@ -706,8 +740,12 @@ def matm_Service(start_date, end_date, service_name):
             result = df_db
 
     except SQLAlchemyError as e:
-        logger.error(f"Database error in aeps_Service(): {e}")
+        logger.error(f"Database error in Matm_Service(): {e}")
     except Exception as e:
-        logger.error(f"Unexpected error in aeps_Service(): {e}")
+        logger.error(f"Unexpected error in Matm_Service(): {e}")
 
     return result
+
+
+# ----------------------------------------------------------------------------------
+#
