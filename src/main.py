@@ -57,7 +57,7 @@ def main(from_date, to_date, service_name, file, transaction_type):
                     "Date": "VENDOR_DATE",
                     "Remarks": "VENDOR_STATUS",
                     "Utr": "REFID",
-                    "Amount":"AMOUNT",
+                    "Amount": "AMOUNT",
                 }
             )
         elif service_name == "LIC":
@@ -90,16 +90,20 @@ def main(from_date, to_date, service_name, file, transaction_type):
             return message
 
         if "VENDOR_DATE" in df_excel:
-            if service_name == 'UPIQR':
+            if service_name == "UPIQR":
 
                 df_excel["VENDOR_DATE"] = pd.to_datetime(
                     df_excel["VENDOR_DATE"], errors="coerce", dayfirst=True
                 ).dt.date
-            else : 
+            elif service_name == "BBPS":
+                df_excel["VENDOR_DATE"] = pd.to_datetime(
+                    df_excel["VENDOR_DATE"], format="%d-%b-%Y %H:%M:%S", errors="coerce"
+                ).dt.date
+            else:
                 df_excel["VENDOR_DATE"] = pd.to_datetime(
                     df_excel["VENDOR_DATE"], errors="coerce"
                 ).dt.date
-
+                print(df_excel["VENDOR_DATE"])
             from_date = pd.to_datetime(from_date).date()
             to_date = pd.to_datetime(to_date).date()
 

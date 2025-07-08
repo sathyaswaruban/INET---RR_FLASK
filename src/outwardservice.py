@@ -80,7 +80,7 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             values_mapping = {
                 "Successful": "success",
                 "Failure": "failed",
-                "Transaction timed out": "Timed out",
+                "Transaction timed out": "timed out",
                 "": "failed",
             }
             df_excel["VENDOR_STATUS"] = (
@@ -351,7 +351,7 @@ def filtering_Data(df_db, df_excel, service_name):
     )
     # SCENARIO 4 IHUB_FAIL_VEND_FAIL-NIL
     ihub_vend_fail_not_in_ledger = matched[
-        (matched["VENDOR_STATUS"].str.lower() == "failed")
+        (matched["VENDOR_STATUS"].str.lower().isin(["failed", "timed out"]))
         & (matched["IHUB_MASTER_STATUS"].str.lower() == "failed")
         & (matched["IHUB_LEDGER_STATUS"].str.lower() == "no")
     ].copy()
@@ -362,7 +362,7 @@ def filtering_Data(df_db, df_excel, service_name):
     # SCENARIO 5 IHUB_INT_VEND_SUC-NIL
     ihub_initiate_vend_succes_not_in_ledger = matched[
         (matched["VENDOR_STATUS"].str.lower() == "success")
-        & (matched["IHUB_MASTER_STATUS"].str.lower() == "initiated")
+        & (matched["IHUB_MASTER_STATUS"].str.lower().isin(["initiated", "inprogres"]))
         & (matched["IHUB_LEDGER_STATUS"].str.lower() == "no")
     ].copy()
     ihub_initiate_vend_succes_not_in_ledger["CATEGORY"] = "IHUB_INT_VEND_SUC-NIL"
@@ -371,8 +371,8 @@ def filtering_Data(df_db, df_excel, service_name):
     )
     # SCENARIO 6 VEND_FAIL_IHUB_INT-NIL
     ihub_initiate_vend_fail_not_in_ledger = matched[
-        (matched["VENDOR_STATUS"].str.lower() == "failed")
-        & (matched["IHUB_MASTER_STATUS"].str.lower() == "initiated")
+        (matched["VENDOR_STATUS"].str.lower().isin(["failed", "timed out"]))
+        & (matched["IHUB_MASTER_STATUS"].str.lower().isin(["initiated", "inprogress"]))
         & (matched["IHUB_LEDGER_STATUS"].str.lower() == "no")
     ].copy()
     ihub_initiate_vend_fail_not_in_ledger["CATEGORY"] = " VEND_FAIL_IHUB_INT-NIL"
@@ -392,7 +392,7 @@ def filtering_Data(df_db, df_excel, service_name):
     #    )
     # SCENARIO 2 VEND_FAIL_IHUB_SUC IL
     vend_fail_ihub_succ = matched[
-        (matched["VENDOR_STATUS"].str.lower() == "failed")
+        (matched["VENDOR_STATUS"].str.lower().isin(["failed", "timed out"]))
         & (matched["IHUB_MASTER_STATUS"].str.lower() == "success")
         & (matched["IHUB_LEDGER_STATUS"].str.lower() == "yes")
     ].copy()
@@ -408,7 +408,7 @@ def filtering_Data(df_db, df_excel, service_name):
     vend_succ_ihub_fail = safe_column_select(vend_succ_ihub_fail, required_columns)
     # SCENARIO 4 IHUB_VEND_FAIL IL
     ihub_vend_fail = matched[
-        (matched["VENDOR_STATUS"].str.lower() == "failed")
+        (matched["VENDOR_STATUS"].str.lower().isin(["failed", "timed out"]))
         & (matched["IHUB_MASTER_STATUS"].str.lower() == "failed")
         & (matched["IHUB_LEDGER_STATUS"].str.lower() == "yes")
     ].copy()
@@ -421,13 +421,15 @@ def filtering_Data(df_db, df_excel, service_name):
         & (matched["IHUB_LEDGER_STATUS"].str.lower() == "yes")
     ].copy()
     ihub_initiate_vend_succes["CATEGORY"] = "IHUB_INT_VEND_SUC"
+    print(ihub_initiate_vend_succes["VENDOR_DATE"])
     ihub_initiate_vend_succes = safe_column_select(
         ihub_initiate_vend_succes, required_columns
     )
+    print(ihub_initiate_vend_succes["VENDOR_DATE"])
 
     # SCENARIO 6 VEND_FAIL_IHUB_INT IL
     ihub_initiate_vend_fail = matched[
-        (matched["VENDOR_STATUS"].str.lower() == "failed")
+        (matched["VENDOR_STATUS"].str.lower().isin(["failed", "timed out"]))
         & (matched["IHUB_MASTER_STATUS"].str.lower().isin(["initiated", "inprogress"]))
         & (matched["IHUB_LEDGER_STATUS"].str.lower() == "yes")
     ].copy()
@@ -506,8 +508,8 @@ def filtering_Data(df_db, df_excel, service_name):
             "VEND_FAIL_IHUB_INT": ihub_initiate_vend_fail,
             "Total_Success_count": success_count,
             "Total_Failed_count": failed_count,
-            "Excel_value_count":Excel_count,
-            "HUB_Value_count":Hub_count,
+            "Excel_value_count": Excel_count,
+            "HUB_Value_count": Hub_count,
         }
         # print(mapping)
         return mapping
@@ -525,7 +527,7 @@ def get_ebo_wallet_data(start_date, end_date):
         SELECT  
             mt2.TransactionRefNum,
             ewt.MasterTransactionsId,
-            MAX(CASE WHEN ewt.Description IN ('Transaction - Credit','Transaction - Credit due to failure') THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
+            MAX(CASE WHEN ewt.Description IN ('Transaction - Credit','Transaction - Credit due to failure','Transaction - Refund') THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
             MAX(CASE WHEN ewt.Description = 'Transaction - Debit' THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
             MAX(CASE WHEN ewt.Description = 'Commission Added' THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
             MAX(CASE WHEN ewt.Description = 'Commission - Reversal' THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
