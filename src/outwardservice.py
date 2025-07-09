@@ -154,6 +154,20 @@ def outward_service_selection(start_date, end_date, service_name, df_excel):
             logger.warning("Wrong File Uploaded PANUTI Service")
             message = "Wrong File Updloaded...!"
             return message
+    elif service_name == "PANNSDL":
+        if "REFID" in df_excel:
+            # tenant_service_id = 201
+            # Hub_service_id = 218
+            df_excel["VENDOR_STATUS"] = df_excel["VENDOR_STATUS"].astype(str)
+            df_excel["VENDOR_STATUS"] = df_excel["VENDOR_STATUS"].apply(
+                lambda x: "success" if "accepted" in x.lower() else "failed"
+            )
+            hub_data = Pannsdl_service(start_date, end_date, service_name)
+            result = filtering_Data(hub_data, df_excel, service_name)
+        else:
+            logger.warning("Wrong File Uploaded PANNSDL Service")
+            message = "Wrong File Updloaded...!"
+            return message
     elif service_name == "ASTRO":
         if "REFID" in df_excel:
             # tenant_service_id = 201
@@ -222,10 +236,12 @@ def filtering_Data(df_db, df_excel, service_name):
     Hub_count = df_db.shape[0]
     mapping = None
     # converting the date of both db and excel to string
+    # Step 1: Convert to datetime safely
+    df_excel["VENDOR_DATE"] = pd.to_datetime(df_excel["VENDOR_DATE"], errors="coerce")
+    df_excel["VENDOR_DATE"] = df_excel["VENDOR_DATE"].dt.strftime("%Y-%m-%d")
+    df_db["SERVICE_DATE"] = pd.to_datetime(df_db["SERVICE_DATE"], errors="coerce")
     df_db["SERVICE_DATE"] = df_db["SERVICE_DATE"].dt.strftime("%Y-%m-%d")
-    df_excel["VENDOR_DATE"] = pd.to_datetime(
-        df_excel["VENDOR_DATE"], errors="coerce"
-    ).dt.strftime("%Y-%m-%d")
+
 
     # Mapping names with corresponding values
     status_mapping = {
@@ -268,7 +284,7 @@ def filtering_Data(df_db, df_excel, service_name):
         "SERVICE_DATE",
         "IHUB_LEDGER_STATUS",
         "BILL_FETCH_STATUS",
-        # "TENANT_LEDGER_STATUS",
+        "TENANT_LEDGER_STATUS",
         "TRANSACTION_CREDIT",
         "TRANSACTION_DEBIT",
         "COMMISSION_CREDIT",
@@ -279,21 +295,31 @@ def filtering_Data(df_db, df_excel, service_name):
     not_in_vendor = df_db[~df_db["VENDOR_REFERENCE"].isin(df_excel["REFID"])].copy()
     not_in_vendor["CATEGORY"] = "NOT_IN_VENDOR"
     not_in_vendor = not_in_vendor.rename(columns={"VENDOR_REFERENCE": "REFID"})
+    if service_name == 'RECHARGE':
+        not_in_vendor = not_in_vendor.rename(columns={"RECHARGE_AMOUNT": "AMOUNT"})
+    elif service_name == 'LIC':
+        not_in_vendor = not_in_vendor.rename(columns={"LIC_AMOUNT": "AMOUNT"})
     not_in_vendor = safe_column_select(not_in_vendor, required_columns)
     # print(not_in_vendor["REFID"])
 
     # 2. Filtering Data Present in Vendor XL but Not in Ihub Portal
     not_in_portal = df_excel[~df_excel["REFID"].isin(df_db["VENDOR_REFERENCE"])].copy()
     not_in_portal["CATEGORY"] = "NOT_IN_PORTAL"
+    if service_name == 'PANNSDL':
+        not_in_portal = not_in_portal.rename(columns={"Appln Fee (`)": "AMOUNT"})
+    elif service_name == 'BBPS':
+        not_in_portal = not_in_portal.rename(columns={"Transaction Amount(RS.)": "AMOUNT"})
+    elif service_name == 'PANUTI':
+        not_in_portal = not_in_portal.rename(columns={"Res Amount": "AMOUNT"})
+    elif service_name == 'PASSPORT':
+        not_in_portal = not_in_portal.rename(columns={"Debit": "AMOUNT"})
     not_in_portal = safe_column_select(not_in_portal, required_columns)
-
     # 4. Filtering Data that matches in both Ihub Portal and Vendor Xl as : Matched
     matched = df_db.merge(
         df_excel, left_on="VENDOR_REFERENCE", right_on="REFID", how="inner"
     ).copy()
     matched["CATEGORY"] = "MATCHED"
     matched = safe_column_select(matched, required_columns)
-    # print(matched[["IHUB_MASTER_STATUS", "VENDOR_STATUS"]].head(10))
 
     # 5. Filtering Data that Mismatched in both Ihub Portal and Vendor Xl as : Mismatched
     mismatched = matched[
@@ -421,11 +447,9 @@ def filtering_Data(df_db, df_excel, service_name):
         & (matched["IHUB_LEDGER_STATUS"].str.lower() == "yes")
     ].copy()
     ihub_initiate_vend_succes["CATEGORY"] = "IHUB_INT_VEND_SUC"
-    print(ihub_initiate_vend_succes["VENDOR_DATE"])
     ihub_initiate_vend_succes = safe_column_select(
         ihub_initiate_vend_succes, required_columns
     )
-    print(ihub_initiate_vend_succes["VENDOR_DATE"])
 
     # SCENARIO 6 VEND_FAIL_IHUB_INT IL
     ihub_initiate_vend_fail = matched[
@@ -661,6 +685,7 @@ def recharge_Service(start_date, end_date, service_name):
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                sn.CreationTs AS SERVICE_DATE, 
                sn.rechargeStatus AS service_status,
+               sn.Amount as RECHARGE_AMOUNT,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'
@@ -1025,47 +1050,99 @@ def IMT_Service(start_date, end_date, df_excel, service_name):
 
 # ------------------------------------------------------------------------
 # PAN-NSDL Service function
-def Pannsdl_service(start_date, end_date, df_excel, service_name):
+def Pannsdl_service(start_date, end_date, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
-    query = f"""
-        select pit.AcknowledgeNo as VENDOR_REFERENCE,mt.TransactionRefNum AS IHUB_REFERENCE,
-        mt.TransactionStatus AS IHUB_MASTER_STATUS,
-        u.Username as IHUB_USERNAME,
-        pit.applicationstatus as {service_name}_STATUS,
-        CASE When 
-        a.IHubReferenceId IS NOT NULL THEN 'Yes'
-        ELSE 'NO'
-        END AS 'IHUB_LEDGER_STATUS'
-        from ihubcore.PanInTransaction pit
-        left join ihubcore.MasterSubTransaction mst on mst.id= pit.MasterSubTransactionId
-        left join ihubcore.MasterTransaction mt on mt.id = mst.MasterTransactionId
-        left join tenantinetcsc.EboDetail ed on ed.Id = mt.EboDetailId 
-        left join tenantinetcsc.`User` u  on u.id = ed.UserId 
-        left join (select DISTINCT iwt.IHubReferenceId  from ihubcore.IHubWalletTransaction iwt  
-        WHERE Date(iwt.creationTs) BETWEEN '{start_date}'AND CURRENT_DATE()) a 
-        on a.IHubReferenceId = mt.TransactionRefNum
-        where DATE(u.CreationTs) BETWEEN '{start_date}' and '{end_date}
+    result = pd.DataFrame()
+    query = text(
+        f"""
+       SELECT  mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               pit.AcknowledgeNo  AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               DATE(pit.CreationTs)  AS SERVICE_DATE, 
+               pit.ApplicationStatus AS service_status,
+               pit.Amount as AMOUNT,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.PanInTransaction pit  
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON pit.MasterSubTransactionId = mst.Id 
+        LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(pit.CreationTs) BETWEEN :start_date and :end_date and pit.AcknowledgeNo  IS NOT NULL
         """
-    # Reading data from Server
-    df_db = pd.read_sql(query, con=engine)
-    # mapping status name with enum
-    status_mapping = {
-        0: "None",
-        1: "New",
-        2: "Acknowledged",
-        3: "Rejected",
-        4: "Uploaded",
-        5: "Processed",
-        6: "Reupload",
-        7: "Alloted",
-        8: "Objection",
-        9: "MoveToNew",
-    }
-    df_db[f"{service_name}_STATUS"] = df_db[f"{service_name}_STATUS"].apply(
-        lambda x: status_mapping.get(x, x)
     )
-    # calling filtering function
-    result = filtering_Data(df_db, df_excel, service_name)
+    params = {"start_date": start_date, "end_date": end_date}
+    # Reading data from Server
+    try:
+        df_db = execute_sql_with_retry(
+            query,
+            params=params,
+        )
+        if df_db.empty:
+            logger.warning(f"No data returned for service:{service_name}")
+            return pd.DataFrame()
+        # mapping status name with enum
+        status_mapping = {
+            0: "None",
+            1: "New",
+            2: "Acknowledged",
+            3: "Rejected",
+            4: "Uploaded",
+            5: "Processed",
+            6: "Reupload",
+            7: "Alloted",
+            8: "Objection",
+            9: "MoveToNew",
+        }
+        df_db[f"{service_name}_STATUS"] = df_db["service_status"].apply(
+            lambda x: status_mapping.get(x, x)
+        )
+        df_db.drop(columns=["service_status"], inplace=True)
+        # calling filtering function
+        tenant_Id_mapping = {
+            1: "INET-CSC",
+            2: "ITI_ESEVA",
+            3: "UPCB",
+        }
+        df_db["TENANT_ID"] = (
+            df_db["TENANT_ID"].map(tenant_Id_mapping).fillna(df_db["TENANT_ID"])
+        )
+        ebo_result = get_ebo_wallet_data(start_date, end_date)
+        if ebo_result is not None and not ebo_result.empty:
+            result = pd.merge(
+                df_db,
+                ebo_result,
+                how="left",
+                left_on="IHUB_REFERENCE",
+                right_on="TransactionRefNum",
+                validate="one_to_one",
+            )
+        else:
+            logger.warning("No ebo wallet data returned")
+            result = df_db
+
+    except SQLAlchemyError as e:
+        logger.error(f"Databasr error in PAN_NSDL_SERVICE():{e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in PAN_NSDL_SERVICE():{e} ")
     return result
 
 
@@ -1182,7 +1259,8 @@ def lic_service(start_date, end_date, service_name):
                lpt.OrderId AS VENDOR_REFERENCE,
                u.UserName as IHUB_USERNAME, 
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
-               lpt.CreationTs AS SERVICE_DATE, 
+               lpt.CreationTs AS SERVICE_DATE,
+               lpf.Billedamount as LIC_AMOUNT, 
                lpt.BillPayStatus AS service_status,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
@@ -1192,9 +1270,10 @@ def lic_service(start_date, end_date, service_name):
                    WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'
                END AS TENANT_LEDGER_STATUS
-        FROM ihubcore.MasterTransaction mt2
-        LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
-        LEFT JOIN ihubcore.LicPremiumTransaction lpt ON lpt.MasterSubTransactionId = mst.Id
+        FROM ihubcore.LicPremiumTransaction lpt
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON lpt.MasterSubTransactionId = mst.Id
+        LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN ihubcore.LicPremiumBillFetch lpf ON lpf.id = lpt.BillFetchId  
         LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
         LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
@@ -1267,7 +1346,7 @@ def lic_service(start_date, end_date, service_name):
 
 
 # ----------------------------------------------------------------------
-# Stro service Function
+# AStro service Function
 def astro_service(start_date, end_date, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
     result = pd.DataFrame()

@@ -51,6 +51,14 @@ def main(from_date, to_date, service_name, file, transaction_type):
                     "Payment Status": "VENDOR_STATUS",
                 }
             )
+        elif service_name == "PANNSDL":
+            df_excel = df_excel.rename(
+                columns={
+                    "Acknowledgment Number": "REFID",
+                    "Date": "VENDOR_DATE",
+                    "Status Of Application": "VENDOR_STATUS",
+                }
+            )
         elif service_name == "MATM":
             df_excel = df_excel.rename(
                 columns={
@@ -74,6 +82,7 @@ def main(from_date, to_date, service_name, file, transaction_type):
                     "Order ID": "REFID",
                     "Date": "VENDOR_DATE",
                     "Transaction Status": "VENDOR_STATUS",
+                    "Price": "AMOUNT",
                 }
             )
         elif service_name == "UPIQR":
@@ -103,7 +112,6 @@ def main(from_date, to_date, service_name, file, transaction_type):
                 df_excel["VENDOR_DATE"] = pd.to_datetime(
                     df_excel["VENDOR_DATE"], errors="coerce"
                 ).dt.date
-                print(df_excel["VENDOR_DATE"])
             from_date = pd.to_datetime(from_date).date()
             to_date = pd.to_datetime(to_date).date()
 
@@ -135,6 +143,7 @@ def main(from_date, to_date, service_name, file, transaction_type):
                 "ABHIBUS",
                 "ASTRO",
                 "PANUTI",
+                "PANNSDL",
             ]:
                 print("outward_service:", service_name)
                 result = outward_service_selection(

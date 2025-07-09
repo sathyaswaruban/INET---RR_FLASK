@@ -131,34 +131,18 @@ def filtering_Data(df_db, df_excel, service_name):
         df_excel["VENDOR_DATE"] = pd.to_datetime(
             df_excel["VENDOR_DATE"], errors="coerce"
         ).dt.strftime("%Y-%m-%d")
-        if service_name == "UPIQR":
-            status_mapping = {
-                0: "success",
-                5: "inprogress",
-                7: "failed",
-                255: "intiated",
-            }
-
-            columns_to_update = ["IHUB_MASTER_STATUS"]
-            df_db[columns_to_update] = df_db[columns_to_update].apply(
-                lambda x: x.map(status_mapping).fillna(x)
-            )
-
-        else:
             # Mapping names with corresponding values
-            status_mapping = {
-                0: "initiated",
-                1: "success",
-                2: "failed",
-                3: "inprogress",
-                4: "partial success",
-            }
-
-            columns_to_update = ["IHUB_MASTER_STATUS"]
-            df_db[columns_to_update] = df_db[columns_to_update].apply(
-                lambda x: x.map(status_mapping).fillna(x)
-            )
-
+        status_mapping = {
+            0: "initiated",
+            1: "success",
+            2: "failed",
+            3: "inprogress",
+            4: "partial success",
+        }
+        columns_to_update = ["IHUB_MASTER_STATUS"]
+        df_db[columns_to_update] = df_db[columns_to_update].apply(
+            lambda x: x.map(status_mapping).fillna(x)
+        )
         # tenant_data["TENANT_STATUS"] = tenant_data["TENANT_STATUS"].apply(
         #     lambda x: status_mapping.get(x, x)
         # )
@@ -182,7 +166,6 @@ def filtering_Data(df_db, df_excel, service_name):
             f"{service_name}_STATUS",
             "SERVICE_DATE",
             "IHUB_LEDGER_STATUS",
-            # "TENANT_LEDGER_STATUS",
             "TRANSACTION_CREDIT",
             "TRANSACTION_DEBIT",
             "COMMISSION_CREDIT",
@@ -191,6 +174,10 @@ def filtering_Data(df_db, df_excel, service_name):
         # 1 Filtering Data initiated in IHUB portal and not in Vendor Xl
         not_in_vendor = df_db[~df_db["VENDOR_REFERENCE"].isin(df_excel["REFID"])].copy()
         not_in_vendor["CATEGORY"] = "NOT_IN_VENDOR"
+        if service_name == 'AEPS':
+            not_in_vendor = not_in_vendor.rename(columns={"AEPS_AMOUNT": "AMOUNT"})
+        elif service_name == 'MATM':
+            not_in_vendor = not_in_vendor.rename(columns={"MATM_AMOUNT": "AMOUNT"})
         not_in_vendor = safe_column_select(not_in_vendor, required_columns)
         # 2. Filtering Data Present in Vendor XL but Not in Ihub Portal
         not_in_portal = df_excel[
@@ -564,6 +551,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             pat.CreationTs AS SERVICE_DATE,
             pat.TransStatus AS service_status,
+            pat.Amount AS AEPS_AMOUNT,
             CASE 
                 WHEN a.IHubReferenceId IS NOT NULL THEN 'Yes'
                 ELSE 'No'
@@ -665,6 +653,7 @@ def matm_Service(start_date, end_date, service_name):
             u.UserName as IHUB_USERNAME,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             iwmt.CreationTs AS SERVICE_DATE,
+            iwmt.Amount AS MATM_AMOUNT,
             iwmt.TransStatusType  AS service_status,
             CASE 
                 WHEN a.IHubReferenceId IS NOT NULL THEN 'Yes'
