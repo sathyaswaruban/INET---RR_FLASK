@@ -16,15 +16,15 @@ from fastapi.responses import JSONResponse
 #
 app = Flask(__name__)
 app.secret_key = "4242"
-CORS(
-    app, supports_credentials=True, origins=["http://localhost:3000"]
-)  # Adjust origin as needed
-app.permanent_session_lifetime = timedelta(minutes=30)
-
 # CORS(
-#     app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
+#     app, supports_credentials=True, origins=["http://localhost:3000"]
 # )  # Adjust origin as needed
 # app.permanent_session_lifetime = timedelta(minutes=30)
+
+CORS(
+    app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
+)  # Adjust origin as needed
+app.permanent_session_lifetime = timedelta(minutes=30)
 
 # Error handler for 404
 @app.errorhandler(404)
