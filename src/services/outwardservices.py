@@ -1,0 +1,823 @@
+import pandas as pd
+from db_connector import get_db_connection
+from logger_config import logger
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+from sqlalchemy.exc import OperationalError, DatabaseError
+from logger_config import logger
+from recon_utils import (
+    map_status_column,
+    map_tenant_id_column,
+    merge_ebo_wallet_data,
+)
+
+
+engine = get_db_connection()
+
+# Configure retry logic for database operations
+DB_RETRY_CONFIG = {
+    "stop": stop_after_attempt(3),
+    "wait": wait_exponential(multiplier=1, min=1, max=10),
+    "retry": retry_if_exception_type((OperationalError, DatabaseError)),
+    "reraise": True,
+}
+
+
+####
+@retry(**DB_RETRY_CONFIG)
+def execute_sql_with_retry(query, params=None):
+    logger.info("Entered helper function to execute SQL with retry logic")
+
+    try:
+        with engine.connect() as connection:
+            result = connection.execute(query, params or {})
+            df = pd.DataFrame(
+                result.fetchall(), columns=result.keys()
+            )  # Fully fetches all rows
+            return df
+    except Exception as e:
+        logger.error(f"Error during SQL execution: {e}")
+        raise
+
+
+def getServiceId(MasterServiceId, MasterVendorId):
+    logger.info("Entered Get Service ID Function")
+    result = None
+
+    query = text(
+        """
+        SELECT vssm.id FROM ihubcore.VendorSubServiceMapping vssm join ihubcore.MasterSubService mss  on vssm.MasterSubServiceId =mss.Id
+        join ihubcore.MasterService ms on ms.id=mss.MasterServiceId
+        join ihubcore.MasterVendor mv on vssm.MasterVendorId =mv.id
+        where ms.Id = :MasterServiceId and mv.id = :MasterVendorId
+        """
+    )
+    params = {"MasterServiceId": MasterServiceId, "MasterVendorId": MasterVendorId}
+    try:
+        df = execute_sql_with_retry(
+            query,
+            params=params,
+        )
+
+        if df.empty:
+            logger.warning("No values returned from Get Service Id Function")
+            return pd.DataFrame()
+        else:
+            result = df
+    except SQLAlchemyError as e:
+        logger.error(f"Database error :{e}")
+    except Exception as e:
+        logger.error(f"Unexpected error : {e}")
+    return result
+
+
+def get_ebo_wallet_data(start_date, end_date):
+    logger.info("Fetching Data from EBO Wallet Transaction")
+    ebo_df = None
+    query = text(
+        """
+       SELECT  
+    mt2.TransactionRefNum AS IHubReferenceId,
+    ewt.MasterTransactionsId,
+    MAX(
+        CASE 
+            WHEN ewt.Description IN ('Transaction - Credit', 'Transaction - Credit due to failure', 'Transaction - Refund') 
+              OR LOWER(ewt.Description) LIKE "%refund credit%" 
+            THEN 'Yes' 
+            ELSE 'No' 
+        END
+    ) AS TRANSACTION_CREDIT,
+    MAX(CASE WHEN ewt.Description = 'Transaction - Debit' THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
+    MAX(CASE WHEN ewt.Description = 'Commission Added' THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
+    MAX(CASE WHEN ewt.Description = 'Commission - Reversal' THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
+FROM
+    ihubcore.MasterTransaction mt2
+JOIN  
+    tenantinetcsc.EboWalletTransaction ewt
+    ON mt2.TenantMasterTransactionId = ewt.MasterTransactionsId
+WHERE
+    DATE(mt2.CreationTs) BETWEEN :start_date AND :end_date
+GROUP BY
+    mt2.TransactionRefNum,
+    ewt.MasterTransactionsId
+
+    """
+    )
+
+    try:
+        # Call the retry-enabled query executor
+        ebo_df = execute_sql_with_retry(
+            query, params={"start_date": start_date, "end_date": end_date}
+        )
+        if ebo_df.empty:
+            logger.warning("No data returned from EBO Wallet table.")
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in EBO Wallet Query: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in EBO Wallet Query Execution: {e}")
+
+    return ebo_df
+
+
+# Recharge service function ---------------------------------------------------
+def recharge_Service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f"""
+        SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               sn.requestID AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               sn.CreationTs AS SERVICE_DATE, 
+               sn.rechargeStatus AS service_status,
+               sn.Amount as RECHARGE_AMOUNT,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.MasterTransaction mt2
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN ihubcore.PsRechargeTransaction sn ON sn.MasterSubTransactionId = mst.Id
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(sn.CreationTs) BETWEEN :start_date AND :end_date
+    """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+    try:
+        df_db = execute_sql_with_retry(query, params=params)
+        if df_db.empty:
+            logger.warning(f"No data returned for service: {service_name}")
+            return pd.DataFrame()
+        status_mapping = {
+            0: "initiated",
+            1: "success",
+            2: "pending",
+            3: "failed",
+            4: "instant failed",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        df_db = map_tenant_id_column(df_db)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in recharge_Service(): {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in recharge_Service(): {e}")
+    return result
+
+
+# ---------------------------------------------------------------------------------------
+# BBPS FUNCTION
+def Bbps_service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f"""
+         SELECT
+        mt2.TransactionRefNum as IHUB_REFERENCE,
+        u.Username as IHUB_USERNAME,
+        bbp.TxnRefId  as VENDOR_REFERENCE,
+        bbp.Amount as AMOUNT,
+        bbp.creationTs as SERVICE_DATE,
+        mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+        mt2.tenantDetailID as TENANT_ID,
+        bbp.TransactionStatusType as service_status ,bbp.HeadReferenceId ,
+        CASE when iw.IHubReferenceId IS NOT NULL THEN 'Yes'
+        ELSE 'NO'
+        END AS IHUB_LEDGER_STATUS,
+        CASE when bf.id IS NOT NULL THEN 'Yes'
+        ELSE 'NO'
+        END AS BILL_FETCH_STATUS,
+        CASE
+                WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                ELSE 'No'
+            END AS TENANT_LEDGER_STATUS
+        FROM  ihubcore.MasterTransaction mt2
+        LEFT JOIN 
+        ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN 
+        ihubcore.BBPS_BillPay bbp ON bbp.MasterSubTransactionId = mst.Id 
+        left join tenantinetcsc.EboDetail ed on ed.Id = mt2.EboDetailId 
+        left join tenantinetcsc.`User` u  on u.id = ed.UserId 
+        left join (Select DISTINCT iwt.IHubReferenceId from ihubcore.IHubWalletTransaction iwt 
+        where date(iwt.creationTs) between  :start_date AND :end_date ) as iw 
+        on iw.IHubReferenceId =mt2.TransactionRefNum 
+        left join (select DISTINCT bbf.id  from ihubcore.BBPS_BillFetch bbf 
+        where date(bbf.creationTs) between  :start_date AND :end_date) as bf 
+        on bf.id  = bbp.BBPS_BillFetchId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum 
+        WHERE DATE(bbp.CreationTs) BETWEEN  :start_date AND :end_date 
+        
+        """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+    try:
+        df_db = execute_sql_with_retry(query, params=params)
+        if df_db.empty:
+            logger.warning(f"No data returned for service:{service_name}")
+            return pd.DataFrame()
+        status_mapping = {
+            0: "unknown",
+            1: "success",
+            2: "failed",
+            3: "inprogress",
+            4: "partialsuccuess",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        df_db = map_tenant_id_column(df_db)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+    except SQLAlchemyError as e:
+        logger.error(f"Databasr error in PAN_UTI_SERVICE():{e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in PAN_UTI_SERVICE():{e} ")
+    return result
+
+
+# ------------------------------------------------------------------------
+# PAN-UTI Service function
+def Panuti_service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f"""
+       SELECT 
+               mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               u2.ApplicationNumber  AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               u2.CreationTs  AS SERVICE_DATE, 
+               u2.TransactionStatusType AS service_status,
+               u2.TransactionAmount  as AMOUNT,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.UTIITSLTTransaction u2  
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON u2.MasterSubTransactionId = mst.Id 
+        LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(u2.CreationTs) BETWEEN :start_date and :end_date
+        """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+    try:
+        df_db = execute_sql_with_retry(query, params=params)
+        if df_db.empty:
+            logger.warning(f"No data returned for service:{service_name}")
+            return pd.DataFrame()
+        status_mapping = {
+            0: "failed",
+            1: "success",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        df_db = map_tenant_id_column(df_db)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+    except SQLAlchemyError as e:
+        logger.error(f"Databasr error in PAN_UTI_SERVICE():{e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in PAN_UTI_SERVICE():{e} ")
+    return result
+
+
+# ----------------------------------------------------------------------------------------
+# DMT SERVICE FUNCTION-------------------------------------------------------------------
+def dmt_Service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    query = text(
+        f"""
+            SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
+            pst.VendorReferenceId as VENDOR_REFERENCE,
+            u.UserName as IHUB_USERNAME,
+            mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+            pst.PaySprintTransStatus as service_status,
+            CASE
+            WHEN a.IHubReferenceId  IS NOT NULL THEN 'Yes'
+            ELSE 'No'
+            END AS IHUB_LEDGER_STATUS,
+            CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+            FROM
+            ihubcore.MasterTransaction mt2
+            LEFT JOIN
+            ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
+            LEFT JOIN
+            ihubcore.PaySprint_Transaction pst ON pst.MasterSubTransactionId = mst.Id
+            LEFT JOIN
+            tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+            LEFT JOIN
+            tenantinetcsc.`User` u ON u.id = ed.UserId
+            LEFT JOIN
+            (SELECT DISTINCT iwt.IHubReferenceId AS IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction iwt
+            WHERE DATE(iwt.CreationTs) BETWEEN :start_date and :end_date
+            ) a ON a.IHubReferenceId = mt2.TransactionRefNum
+            LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+            ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+            WHERE
+            DATE(pst.CreationTs) BETWEEN :start_date and :end_date 
+            """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+    try:
+        df_db = execute_sql_with_retry(query, params=params)
+        df_db["VENDOR_REFERENCE"] = df_db["VENDOR_REFERENCE"].astype(str)
+        if df_db.empty:
+            logger.warning(f"No data returned for service:{service_name}")
+            return pd.DataFrame()
+        status_mapping = {
+            0: "failedandrefunded",
+            1: "success",
+            2: "inprocess",
+            3: "sendtobank",
+            4: "onhold",
+            5: "failed",
+            111: "tenantwalletinit",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        # refunded_trans_ids = df_excel[df_excel["STATUS"].isin(["Refunded", "Failed"])]
+        # refunded_ids_list = refunded_trans_ids["REFID"].astype(str).tolist()
+        # refunded_ids_string = ",".join(f"'{refid}'" for refid in refunded_ids_list)
+        df_db = map_tenant_id_column(df_db)
+        # query = text(f"""
+        #     SELECT pst.VendorReferenceId,
+        #     CASE WHEN mr.MasterSubTransactionId IS NOT NULL THEN 'refunded'
+        #     ELSE 'not_refunded'
+        #     END AS IHUB_REFUND_STATUS
+        #     FROM ihubcore.PaySprint_Transaction pst
+        #     LEFT JOIN ihubcore.MasterRefund mr
+        #     ON mr.MasterSubTransactionId = pst.MasterSubTransactionId
+        #     WHERE pst.VendorReferenceId IN (:refunded_ids_string)
+        #     AND DATE(pst.creationTs) BETWEEN :start_date and :end_date
+        #     """)
+        # params = {"start_date": start_date, "end_date": end_date,"refunded_ids_string": refunded_ids_string}
+        # refunded_db = execute_sql_with_retry(query, params=params)
+        # refunded_db["VendorReferenceId"] = refunded_db["VendorReferenceId"].astype(str)
+        # merged_df = df_db.merge(
+        # refunded_db,
+        # how="left",
+        # left_on="VENDOR_REFERENCE",
+        # right_on="VendorReferenceId",
+        # )
+        # merged_df.drop(columns=["VendorReferenceId"], inplace=True)
+        # df_db = merged_df
+        # df_db["IHUB_REFUND_STATUS"] = df_db["IHUB_REFUND_STATUS"].fillna("not_applicable")
+
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+    except SQLAlchemyError as e:
+        logger.error(f"Databasr error in DMT_SERVICE():{e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in DMT_SERVICE:{e} ")
+    return result
+
+
+# ------------------------------------------------------------------------
+# PAN-NSDL Service function
+def Pannsdl_service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f"""
+       SELECT  mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               pit.AcknowledgeNo  AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               DATE(pit.CreationTs)  AS SERVICE_DATE, 
+               pit.ApplicationStatus AS service_status,
+               pit.Amount as AMOUNT,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.PanInTransaction pit  
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON pit.MasterSubTransactionId = mst.Id 
+        LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(pit.CreationTs) BETWEEN :start_date and :end_date and pit.AcknowledgeNo  IS NOT NULL
+        """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+    try:
+        df_db = execute_sql_with_retry(query, params=params)
+        if df_db.empty:
+            logger.warning(f"No data returned for service:{service_name}")
+            return pd.DataFrame()
+        status_mapping = {
+            0: "None",
+            1: "New",
+            2: "Acknowledged",
+            3: "Rejected",
+            4: "Uploaded",
+            5: "Processed",
+            6: "Reupload",
+            7: "Alloted",
+            8: "Objection",
+            9: "MoveToNew",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        df_db = map_tenant_id_column(df_db)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+    except SQLAlchemyError as e:
+        logger.error(f"Databasr error in PAN_NSDL_SERVICE():{e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in PAN_NSDL_SERVICE():{e} ")
+    return result
+
+
+# ------------------------------------------------------------------------------
+# passport service function
+def passport_service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f"""
+        SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               pi.BankReferenceNumber  AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               pi.BankReferenceTs AS SERVICE_DATE, 
+               pi.PassportInStatusType AS service_status,
+               pi.Amount as AMOUNT,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.PassportIn pi 
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON pi.MasterSubTransactionId = mst.Id 
+        LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(pi.BankReferenceTs) BETWEEN :start_date AND :end_date      
+    """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+    try:
+        df_db = execute_sql_with_retry(query, params=params)
+        if df_db.empty:
+            logger.warning(f"No data returned for service: {service_name}")
+            return pd.DataFrame()
+        status_mapping = {
+            0: "unknown",
+            1: "NewRequest",
+            2: "CallMade",
+            3: "AppointmentFixed",
+            4: "ApplicationClosed",
+            5: "ApplicationRejected",
+            6: "ReAppointment",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        df_db = map_tenant_id_column(df_db)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in recharge_Service(): {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in recharge_Service(): {e}")
+    return result
+
+
+# ------------------------------------------------------------------------
+# LIC PREMIMUM FUNCTION
+def lic_service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f"""
+        SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               lpt.OrderId AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               lpt.CreationTs AS SERVICE_DATE,
+               lpf.Billedamount as LIC_AMOUNT, 
+               lpt.BillPayStatus AS service_status,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.LicPremiumTransaction lpt
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON lpt.MasterSubTransactionId = mst.Id
+        LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN ihubcore.LicPremiumBillFetch lpf ON lpf.id = lpt.BillFetchId  
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(lpt.CreationTs) BETWEEN :start_date AND :end_date      
+    """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+
+    try:
+
+        # Execute with retry logic
+        df_db = execute_sql_with_retry(
+            query,
+            params=params,
+        )
+        if df_db.empty:
+            logger.warning(f"No data returned for service: {service_name}")
+            return pd.DataFrame()
+        # Status mapping with fallback
+        status_mapping = {
+            0: "initiated",
+            1: "success",
+            2: "failed",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        df_db = map_tenant_id_column(df_db)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in recharge_Service(): {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in recharge_Service(): {e}")
+
+    return result
+
+
+# ----------------------------------------------------------------------
+# AStro service Function
+def astro_service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f"""
+        SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
+               mt2.TenantDetailId as TENANT_ID,   
+               at2.OrderId AS VENDOR_REFERENCE,
+               u.UserName as IHUB_USERNAME, 
+               mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               at2.CreationTs AS SERVICE_DATE, 
+               at2.AstroTransactionStatus AS service_status,
+               CASE
+                   WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS IHUB_LEDGER_STATUS,
+               CASE
+                   WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+                   ELSE 'No'
+               END AS TENANT_LEDGER_STATUS
+        FROM ihubcore.MasterTransaction mt2
+        LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN ihubcore.AstroTransaction at2 ON at2.MasterSubTransactionId = mst.Id
+        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) iwt ON iwt.IHubReferenceId = mt2.TransactionRefNum
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.TenantWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
+        WHERE DATE(at2.CreationTs) BETWEEN :start_date AND :end_date      
+    """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+
+    try:
+
+        df_db = execute_sql_with_retry(query, params=params)
+        if df_db.empty:
+            logger.warning(f"No data returned for service: {service_name}")
+            return pd.DataFrame()
+        # Status mapping with fallback
+        status_mapping = {
+            0: "initiated",
+            1: "unknown",
+            2: "success",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        df_db = map_tenant_id_column(df_db)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in ASTRO_Service(): {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in ASTRO_Service(): {e}")
+    return result
+
+
+# ----------------------------------------------------------------------------------
+
+
+# tenant database filtering function------------------------------------------------
+# def tenant_filtering(start_date, end_date, tenant_service_id, hub_service_id):
+#     logger.info("Entered Tenant filtering function")
+#     result = None
+
+#     # Prepare a safe, parameterized query
+#     query = text(
+#         """
+#         WITH cte AS (
+#             SELECT src.Id as TENANT_ID,
+#                    src.UserName as IHUB_USERNAME,
+#                    src.TranAmountTotal as AMOUNT,
+#                    src.TransactionStatus as TENANT_STATUS,
+#                    src.CreationTs as SERVICE_DATE,
+#                    src.VendorSubServiceMappingId,
+#                    hub.Id AS hub_id
+#             FROM (
+#                 SELECT mt.*, u.UserName
+#                 FROM tenantinetcsc.MasterTransaction mt
+#                 LEFT JOIN tenantinetcsc.EboDetail ed ON ed.id = mt.EboDetailId
+#                 LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
+#                 WHERE DATE(mt.CreationTs) BETWEEN :start_date AND :end_date
+#                 AND mt.VendorSubServiceMappingId IN :tenant_service_id
+
+#                 UNION ALL
+
+#                 SELECT umt.*, u.UserName
+#                 FROM tenantupcb.MasterTransaction umt
+#                 LEFT JOIN tenantupcb.EboDetail ed ON ed.id = umt.EboDetailId
+#                 LEFT JOIN tenantupcb.`User` u ON u.Id = ed.UserId
+#                 WHERE DATE(umt.CreationTs) BETWEEN :start_date AND :end_date
+#                 AND umt.VendorSubServiceMappingId IN :tenant_service_id
+
+#                 UNION ALL
+
+#                 SELECT imt.*, u.UserName
+#                 FROM tenantiticsc.MasterTransaction imt
+#                 LEFT JOIN tenantiticsc.EboDetail ed ON ed.id = imt.EboDetailId
+#                 LEFT JOIN tenantiticsc.`User` u ON u.Id = ed.UserId
+#                 WHERE DATE(imt.CreationTs) BETWEEN :start_date AND :end_date
+#                 AND imt.VendorSubServiceMappingId IN :tenant_service_id
+#             ) AS src
+#             LEFT JOIN ihubcore.MasterTransaction AS hub
+#             ON hub.TenantMasterTransactionId = src.Id
+#             AND DATE(hub.CreationTs) BETWEEN :start_date AND :end_date
+#             AND hub.VendorSubServiceMappingId IN :hub_service_id
+#         )
+#         SELECT *
+#         FROM cte
+#         WHERE hub_id IS NULL
+#     """
+#     )
+#     # print(query)
+#     # print(tenant_service_id, hub_service_id)
+
+#     tenant_service_id = (
+#         [tenant_service_id] if isinstance(tenant_service_id, int) else tenant_service_id
+#     )
+#     hub_service_id = (
+#         [x for x in hub_service_id]
+#         if isinstance(hub_service_id, (tuple, list))
+#         else [hub_service_id]
+#     )
+#     # Convert lists to tuples for SQLAlchemy to treat them correctly in IN clauses
+#     params = {
+#         "start_date": start_date,
+#         "end_date": end_date,
+#         "tenant_service_id": tuple(tenant_service_id),
+#         "hub_service_id": tuple(hub_service_id),
+#     }
+#     # print(params)
+#     try:
+#         result = execute_sql_with_retry(query, params=params)
+#     except SQLAlchemyError as e:
+#         logger.error(f"Database error in Tenant DB Filtering: {e}")
+#     except Exception as e:
+#         logger.error(f"Unexpected error in Tenant DB Filtering: {e}")
+
+#     return result
+
+
+# -----------------------

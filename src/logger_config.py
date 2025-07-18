@@ -1,25 +1,31 @@
 import os
 import logging
-from logging.handlers import TimedRotatingFileHandler
 import datetime
 
-# Ensure 'log' directory exists
-os.makedirs("D:/INET---RR_FLASK/logs", exist_ok=True)
+# Get today's date parts
+today = datetime.date.today()
+year_str = str(today.year)
+month_str = f"{today.month:02d}"
+day_str = f"{today.day:02d}"
 
-# Define log file path inside 'log' folder
-log_filename = os.path.join(
-    "D:/INET---RR_FLASK/logs", f"Reconciliation_{datetime.date.today()}.log"
-)
+# Directory: logs/YYYY/MM/
+log_dir = os.path.join("D:/INET---RR_FLASK/logs", year_str, month_str)
+os.makedirs(log_dir, exist_ok=True)
 
-# Create a logger
+# Filename: Reconciliation_YYYY-MM-DD.log
+log_filename = os.path.join(log_dir, f"Reconciliation_{today}.log")
+
+# Setup logger
 logger = logging.getLogger("DailyLogger")
 logger.setLevel(logging.INFO)
+for handler in logger.handlers[:]:
+    logger.removeHandler(handler)
 
-# Create a TimedRotatingFileHandler (New file every day at midnight)
-handler = TimedRotatingFileHandler(
-    log_filename, when="midnight", interval=1, backupCount=7
-)
-handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+# Avoid adding duplicate handlers
+file_handler = logging.FileHandler(log_filename, mode='a')
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
-# Add handler to logger
-logger.addHandler(handler)
+
+logger.info("Logger initialized successfully.")

@@ -1,9 +1,4 @@
-from flask import (
-    Flask,
-    request,
-    jsonify,
- 
-)
+from flask import Flask, request, jsonify
 import pandas as pd
 from main import main
 from logger_config import logger
@@ -11,110 +6,102 @@ from datetime import timedelta
 from handler import handler
 from flask_cors import CORS
 import traceback
-from fastapi.responses import JSONResponse
+from typing import Dict, Any, Optional
 
-#
 app = Flask(__name__)
-app.secret_key = "4242"
-CORS(
-    app, supports_credentials=True, origins=["http://localhost:3000"]
-)  # Adjust origin as needed
-app.permanent_session_lifetime = timedelta(minutes=30)
+app.secret_key = "inet_secret_key"
 
+
+# Configure CORS
+CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
 # CORS(
 #     app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
-# )  # Adjust origin as needed
-# app.permanent_session_lifetime = timedelta(minutes=30)
+# )
 
-# Error handler for 404
+
+# Constants
+REQUIRED_FIELDS = ["from_date", "to_date", "service_name"]
+SUCCESS_MESSAGE = "Data processed successfully!"
+FAILURE_MESSAGE = "Failed to process data"
+
+def validate_request(request) -> Optional[Dict[str, Any]]:
+    """Validate incoming request and return error response if invalid."""
+    # Check required fields
+    missing_fields = [field for field in REQUIRED_FIELDS if field not in request.form]
+    if missing_fields:
+        return {"error": f"Missing required fields: {', '.join(missing_fields)}"}, 400
+    
+    # Check file upload
+    if 'file' not in request.files or not request.files['file'].filename:
+        return {"error": "No file uploaded"}, 400
+    
+    return None
+
+def process_result(result: Any, service_name: str) -> Dict[str, Any]:
+    """Process the result from main() into a serializable format."""
+    if isinstance(result, str):
+        return handler("", result, service_name)
+    
+    if not isinstance(result, dict):
+        return handler("", FAILURE_MESSAGE, service_name)
+    
+    processed_result = {}
+    for key, value in result.items():
+        if isinstance(value, pd.DataFrame):
+            # Handle DataFrame conversion
+            value = value.replace({pd.NA: None})
+            for col in value.select_dtypes(include=["datetime64[ns]"]).columns:
+                value[col] = value[col].astype(object).where(value[col].notna(), None)
+            processed_result[key] = value.to_dict(orient="records")
+        elif isinstance(value, list):
+            processed_result[key] = [
+                item if not hasattr(item, "__dict__") else vars(item)
+                for item in value
+            ]
+        elif hasattr(value, "__dict__"):
+            processed_result[key] = vars(value)
+        else:
+            processed_result[key] = value
+    
+    return handler(processed_result, SUCCESS_MESSAGE, service_name)
+
 @app.errorhandler(404)
-def not_found(e):
+def not_found(e) -> tuple:
     return jsonify({"error": "Resource not found"}), 404
 
-
-# Error handler for 500
 @app.errorhandler(500)
-def internal_error(e):
+def internal_error(e) -> tuple:
     logger.error(f"500 Error: {str(e)}\n{traceback.format_exc()}")
     return jsonify({"error": "Internal server error"}), 500
 
-
-# Test endpoint
-@app.route("/api/test", methods=["GET"])
-def test_endpoint():
-    """Test endpoint to verify API is working"""
-    return jsonify(
-        {
-            "status": "success",
-            "message": "API is working!",
-            "data": {"service": "test", "version": "1.0"},
-        }
-    )
-
-
 @app.route("/api/reconciliation", methods=["POST"])
-def reconciliation():
+def reconciliation() -> tuple:
     try:
-        # # Validate session
-        # if "username" not in session:
-        #     return jsonify({"error": "Unauthorized"}), 401
+        # Validate request
+        if error_response := validate_request(request):
+            return jsonify(error_response[0]), error_response[1]
 
-        # Validate required fields
-        required_fields = ["from_date", "to_date", "service_name"]
-        for field in required_fields:
-            if field not in request.form:
-                return jsonify({"error": f"Missing required field: {field}"}), 400
+        # Extract request data
+        request_data = {
+            "from_date": request.form["from_date"],
+            "to_date": request.form["to_date"],
+            "service_name": request.form["service_name"],
+            "transaction_type": request.form.get("transaction_type"),
+            "file": request.files["file"]
+        }
 
-        # Get form data
-        from_date = request.form.get("from_date")
-        to_date = request.form.get("to_date")
-        service_name = request.form.get("service_name")
-        transaction_type = request.form.get("transaction_type", None)
-        file = request.files.get("file")
-
-        # Validate file
-        if not file or file.filename == "":
-            return jsonify({"error": "No file uploaded"}), 400
-
-        # Process data
-        result = main(from_date, to_date, service_name, file, transaction_type)
+        # Process reconciliation
+        result = main(**request_data)
         if isinstance(result, str):
-            message = result
-            result = ""
-            return handler(result, message, service_name)
+            # Original string handling - call handler directly
+            return handler("", result, request_data["service_name"])
         else:
-            for key, value in result.items():
-                # Convert pandas DataFrames to array
-                if isinstance(value, pd.DataFrame):
-                    # Convert using pandas' built-in NaN handling
-                    # print("pd.df loop")
-                    value = value.where(pd.notnull(value), None)
-                    for col in value.select_dtypes(include=["datetime64[ns]"]).columns:
-                        value[col] = (
-                            value[col]
-                            .astype(object)
-                            .where(pd.notnull(value[col]), None)
-                        )
-                    result[key] = value.to_dict(orient="records")
-
-                elif isinstance(value, list):
-                    # Ensure any lists contain proper serializable objects
-                    # print("list loop")
-                    result[key] = [
-                        dict(item) if hasattr(item, "__dict__") else item
-                        for item in value
-                    ]
-
-                elif hasattr(value, "__dict__"):
-                    # Convert objects to dictionaries
-                    # ("dict loop")
-                    result[key] = value.__dict__
-            # print(type(result))
-            message = "Data processed successfully!"
-            return handler(result, message, service_name)
+            # Original non-string path - process_result then handler
+            processed = process_result(result, request_data["service_name"])
+            return processed
     except Exception as e:
         logger.error(f"Reconciliation error: {str(e)}\n{traceback.format_exc()}")
-        message = "Failed to process data"
-        return handler(result,message,service_name)
+        return jsonify(handler(None, FAILURE_MESSAGE, request.form.get("service_name", "")))
+
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
