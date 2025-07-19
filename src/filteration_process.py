@@ -4,7 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
 from typing import Dict, Any, Optional
 from logger_config import logger
-from services.outwardservices import (
+from components.outwardservices import (
     recharge_Service,
     Bbps_service,
     Panuti_service,

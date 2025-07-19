@@ -10,7 +10,6 @@ from tenacity import (
     retry_if_exception_type,
 )
 from sqlalchemy.exc import OperationalError, DatabaseError
-from logger_config import logger
 from recon_utils import (
     map_status_column,
     map_tenant_id_column,
