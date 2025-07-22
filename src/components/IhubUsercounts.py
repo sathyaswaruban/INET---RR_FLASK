@@ -37,41 +37,39 @@ def inet_count():
 
     queries = {
         "Active_list": """
-            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs)
+            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
             FROM tenantinetcsc.UserPurchasedPackage pph
             LEFT JOIN tenantinetcsc.`User` u ON u.id = pph.UserId
             WHERE DATE(pph.ExpireTs) > CURRENT_DATE() AND u.UserRoleId = 2
         """,
         "TN_Active_list": """
-            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs)
+            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
             FROM tenantinetcsc.`User` u 
             LEFT JOIN tenantinetcsc.UserPurchasedPackage pph ON pph.UserId = u.id
             WHERE DATE(pph.ExpireTs) > CURRENT_DATE() AND u.UserRoleId = 2 AND u.UserName LIKE 'TN%'
         """,
         "UP_Active_list": """
-            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs)
+            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
             FROM tenantinetcsc.`User` u 
             LEFT JOIN tenantinetcsc.UserPurchasedPackage pph ON pph.UserId = u.id
-            WHERE DATE(pph.ExpireTs) > CURRENT_DATE() AND u.UserRoleId = 2 AND u.UserName IS NOT LIKE 'TN%'
+            WHERE DATE(pph.ExpireTs) > CURRENT_DATE() AND u.UserRoleId = 2 AND u.UserName LIKE 'UP%'
         """,
         "current_month_expiry_list": """
-            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs)
+            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
             FROM tenantinetcsc.UserPurchasedPackage pph
             LEFT JOIN tenantinetcsc.`User` u ON u.id = pph.UserId
             WHERE MONTH(pph.ExpireTs) = MONTH(CURDATE())
             AND YEAR(pph.ExpireTs) = YEAR(CURDATE())
             AND u.UserRoleId = 2
         """,
-        "current_month_active_list": """
-            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs)
-            FROM tenantinetcsc.UserPurchasedPackage pph
-            LEFT JOIN tenantinetcsc.`User` u ON u.id = pph.UserId
-            WHERE MONTH(pph.ExpireTs) > MONTH(CURDATE())
-            AND YEAR(pph.ExpireTs) >= YEAR(CURDATE())
-            AND u.UserRoleId = 2
+        "AP_Active_list": """
+             SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
+            FROM tenantinetcsc.`User` u 
+            LEFT JOIN tenantinetcsc.UserPurchasedPackage pph ON pph.UserId = u.id
+            WHERE DATE(pph.ExpireTs) > CURRENT_DATE() AND u.UserRoleId = 2 AND u.UserName LIKE 'ap%'
         """,
         "last_month_inactive_list": """
-            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs)
+            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
             FROM tenantinetcsc.UserPurchasedPackage pph
             LEFT JOIN tenantinetcsc.`User` u ON u.id = pph.UserId
             WHERE pph.ExpireTs >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01')
