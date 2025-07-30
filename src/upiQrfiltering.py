@@ -38,7 +38,7 @@ def upiQr_service_selection(start_date, end_date, service_name, df_excel):
     try:
         logger.info(f"Entering Reconciliation for {service_name} Service")
         if service_name == "UPIQR":
-            if "Unique_ID" in df_excel:
+            if "TRNSCTN_NMBR" in df_excel:
                 hub_data = UpiQr_Service(start_date, end_date, service_name)
                 result = filtering_Data(hub_data, df_excel, service_name)
             else:
@@ -73,7 +73,7 @@ def filtering_Data(df_db, df_excel, service_name):
             0: "success",
             5: "inprogress",
             7: "failed",
-            255: "intiated",
+            255: "initiated",
         }
 
         columns_to_update = ["IHUB_MASTER_STATUS"]
@@ -149,86 +149,89 @@ def filtering_Data(df_db, df_excel, service_name):
             (matched[f"{service_name}_STATUS"].str.lower() == "success")
             & (matched["VENDOR_STATUS"].str.lower() == "success")
         ]
+        def scenario_df(df, cond, category):
+            out = df[cond].copy()
+            out["CATEGORY"] = category
+            return safe_column_select(out, required_columns)
 
+        scenarios = {
+            "not_in_vendor": not_in_vendor,
+            "not_in_portal": not_in_portal,
+            "vend_ihub_succ": scenario_df(
+                matched,
+                (matched["VENDOR_STATUS"].str.lower() == "success")
+                & (matched["IHUB_MASTER_STATUS"].str.lower() == "success"),
+                "VEND_IHUB_SUC",
+            ),
+            "vend_ihub_fail": scenario_df(
+                matched,
+                (matched["VENDOR_STATUS"].str.lower() == "failed")
+                & (matched["IHUB_MASTER_STATUS"].str.lower() == "failed"),
+                "VEND_IHUB_FAIL",
+            ),
+            "vend_fail_ihub_succ": scenario_df(
+                        matched,
+                (matched["VENDOR_STATUS"].str.lower() == "failed")
+                & (matched["IHUB_MASTER_STATUS"].str.lower() == "success"),
+                "VEND_FAIL_IHUB_SUC",
+            ),
+            "vend_succ_ihub_fail": scenario_df(
+                matched,
+                (matched["VENDOR_STATUS"].str.lower() == "success")
+                & (matched["IHUB_MASTER_STATUS"].str.lower() == "failed"),
+                "VEND_SUC_IHUB_FAIL",
+            ),
+            "ihub_initiate_vend_succes": scenario_df(
+                matched,
+                (matched["VENDOR_STATUS"].str.lower() == "success")
+                & (matched["IHUB_MASTER_STATUS"].str.lower().isin(["initiated", "inprogress"])),
+                "IHUB_INT_VEND_SUC",
+            ),
+            "ihub_initiate_vend_fail": scenario_df(
+                matched,
+                (matched["VENDOR_STATUS"].str.lower() == "failed")
+                & (matched["IHUB_MASTER_STATUS"].str.lower().isin(["initiated", "inprogress"])),
+                "VEND_FAIL_IHUB_INT",
+            ),
+        }
+
+        # Count success and failure
+        matched_success_status = matched[
+            (matched[f"{service_name}_STATUS"].str.lower() == "success")
+            & (matched["VENDOR_STATUS"].str.lower() == "success")
+        ]
         success_count = matched_success_status.shape[0]
+
         matched_failed_status = matched[
             (matched[f"{service_name}_STATUS"].str.lower() == "failed")
             & (matched["VENDOR_STATUS"].str.lower() == "failed")
         ]
         failed_count = matched_failed_status.shape[0]
 
-        # SCENARIO 2 VEND_FAIL_IHUB_SUC IL
-        vend_fail_ihub_succ = matched[
-            (matched["VENDOR_STATUS"].str.lower() == "failed")
-            & (matched["IHUB_MASTER_STATUS"].str.lower() == "success")
-        ].copy()
-        vend_fail_ihub_succ["CATEGORY"] = "VEND_FAIL_IHUB_SUC"
-        vend_fail_ihub_succ = safe_column_select(vend_fail_ihub_succ, required_columns)
-        # SCENARIO 3 VEND_SUC_IHUB_FAIL
-        vend_succ_ihub_fail = matched[
-            (matched["VENDOR_STATUS"].str.lower() == "success")
-            & (matched["IHUB_MASTER_STATUS"].str.lower() == "failed")
-        ].copy()
-        vend_succ_ihub_fail["CATEGORY"] = "VEND_SUC_IHUB_FAIL"
-        vend_succ_ihub_fail = safe_column_select(vend_succ_ihub_fail, required_columns)
-        # SCENARIO 4 IHUB_VEND_FAIL IL
-        ihub_vend_fail = matched[
-            (matched["VENDOR_STATUS"].str.lower() == "failed")
-            & (matched["IHUB_MASTER_STATUS"].str.lower() == "failed")
-        ].copy()
-        ihub_vend_fail["CATEGORY"] = "IHUB_VEND_FAIL"
-        ihub_vend_fail = safe_column_select(ihub_vend_fail, required_columns)
-        # SCENARIO 5 IHUB_INT_VEND_SUC IL
-        ihub_initiate_vend_succes = matched[
-            (matched["VENDOR_STATUS"].str.lower() == "success")
-            & (
-                matched["IHUB_MASTER_STATUS"]
-                .str.lower()
-                .isin(["initiated", "inprogress"])
-            )
-        ].copy()
-        ihub_initiate_vend_succes["CATEGORY"] = "IHUB_INT_VEND_SUC"
-        ihub_initiate_vend_succes = safe_column_select(
-            ihub_initiate_vend_succes, required_columns
-        )
-
-        # SCENARIO 6 VEND_FAIL_IHUB_INT IL
-        ihub_initiate_vend_fail = matched[
-            (matched["VENDOR_STATUS"].str.lower() == "failed")
-            & (
-                matched["IHUB_MASTER_STATUS"]
-                .str.lower()
-                .isin(["initiated", "inprogress"])
-            )
-        ].copy()
-        ihub_initiate_vend_fail["CATEGORY"] = "VEND_FAIL_IHUB_INT"
-        ihub_initiate_vend_fail = safe_column_select(
-            ihub_initiate_vend_fail, required_columns
-        )
-        # Scenario Block ends-----------------------------------------------------------------------------------
-        # tenant_data["CATEGORY"] = "TENANT_DB_INTI - NOT_IN_IHUB"
-        # Combining all Scenarios
-        combined = [
-            not_in_vendor,
-            not_in_portal,
-            vend_fail_ihub_succ,
-            vend_succ_ihub_fail,
-            ihub_initiate_vend_succes,
-            ihub_initiate_vend_fail,
+        # Align and combine
+        combine_keys = [
+            "not_in_vendor",
+            "not_in_portal",
+            "vend_fail_ihub_succ",
+            "vend_succ_ihub_fail",
+            "ihub_initiate_vend_succes",
+            "ihub_initiate_vend_fail",
         ]
-        all_columns = set().union(*[df.columns for df in combined])
+
+        dfs = [scenarios[k] for k in combine_keys]
+        all_columns = set().union(*[df.columns for df in dfs])
         aligned_dfs = []
-        for df in combined:
-            # create missing columns with None
-            df_copy = df.copy()  # 🛡️ Make a copy so original is not modified
+        for df in dfs:
+            df_copy = df.copy()
             for col in all_columns - set(df_copy.columns):
                 df_copy[col] = None
-            df_copy = df_copy[list(all_columns)]  # Reorder columns
+            df_copy = df_copy[list(all_columns)]
             aligned_dfs.append(df_copy)
-        # Filter out DataFrames that are completely empty or contain only NA values
+
         non_empty_dfs = [
             df for df in aligned_dfs if not df.empty and not df.isna().all().all()
         ]
+
         if not non_empty_dfs:
             logger.info("Filteration Ends")
             message = "Hurray there is no Mistmatch values in your DataSet..!"
@@ -239,25 +242,25 @@ def filtering_Data(df_db, df_excel, service_name):
                 "matched": matched,
             }
         else:
-            combined = pd.concat(non_empty_dfs, ignore_index=True)
             logger.info("Filteration Ends")
-
-            # Mapping all Scenarios with keys as Dictionary to retrun as result
+            combined = pd.concat(non_empty_dfs, ignore_index=True)
             mapping = {
-                "not_in_vendor": not_in_vendor,
+                "not_in_vendor": scenarios["not_in_vendor"],
                 "combined": combined,
-                "not_in_Portal": not_in_portal,
-                "VEND_FAIL_IHUB_SUC": vend_fail_ihub_succ,
-                "VEND_SUC_IHUB_FAIL": vend_succ_ihub_fail,
-                "IHUB_INT_VEND_SUC": ihub_initiate_vend_succes,
-                "VEND_FAIL_IHUB_INT": ihub_initiate_vend_fail,
+                "not_in_Portal": scenarios["not_in_portal"],
+                "VEND_FAIL_IHUB_SUC": scenarios["vend_fail_ihub_succ"],
+                "VEND_SUC_IHUB_FAIL": scenarios["vend_succ_ihub_fail"],
+                "IHUB_INT_VEND_SUC": scenarios["ihub_initiate_vend_succes"],
+                "VEND_FAIL_IHUB_INT": scenarios["ihub_initiate_vend_fail"],
                 "Total_Success_count": success_count,
                 "Total_Failed_count": failed_count,
                 "Excel_value_count": Excel_count,
                 "HUB_Value_count": Hub_count,
+                "VEND_IHUB_SUC": scenarios["vend_ihub_succ"],
+                "VEND_IHUB_FAIL": scenarios["vend_ihub_fail"],
             }
-
             return mapping
+
     except Exception as e:
         logger.warning("Error inside Filtering Function: %s", e)
         print(f"Error inside Filtering Function: {e}")
@@ -273,7 +276,7 @@ def UpiQr_Service(start_date, end_date, service_name):
     result = pd.DataFrame()
     query = text(
         """ SELECT 
-    aet.BankReferenceNo  AS VENDOR_REFERENCE,
+    aet.ReferenceNo  AS VENDOR_REFERENCE,
     aet.TransStatus as IHUB_MASTER_STATUS, 
     aet.TransRemarks as service_status, 
     DATE(aet.CreationTs) AS SERVICE_DATE,

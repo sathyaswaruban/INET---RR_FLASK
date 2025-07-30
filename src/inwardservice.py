@@ -73,11 +73,14 @@ def inward_service_selection(
                     )
                 ].copy()
                 # df_cleaned["REFID"] = df_excel["REFID"].astype(str)
-                df_cleaned["VENDOR_STATUS"] = (
-                    df_cleaned["VENDOR_STATUS"]
-                    .replace({"Transaction Successful.": "success"})
-                    .fillna("failed")
+                df_cleaned["VENDOR_STATUS"] = df_cleaned["VENDOR_STATUS"].apply(
+                    lambda x: (
+                        "success"
+                        if str(x).strip().lower() == "transaction successful."
+                        else "failed"
+                    )
                 )
+
                 hub_data = matm_Service(start_date, end_date, service_name)
                 result = filtering_Data(hub_data, df_cleaned, service_name)
             else:
@@ -212,6 +215,7 @@ def get_ebo_wallet_data(start_date, end_date):
 
     return ebo_df
 
+
 # ----------------------------------------------------------------------------------
 # Aeps function
 def aeps_Service(start_date, end_date, service_name, transaction_type):
@@ -280,15 +284,19 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
 
         # Map status column
         df_db = map_status_column(
-            df_db, "service_status",  status_mapping,new_column=f"{service_name}_STATUS",
-            drop_original=True)
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
         # Check and convert VENDOR_REFERENCE
         if "VENDOR_REFERENCE" in df_db.columns:
             df_db["VENDOR_REFERENCE"] = df_db["VENDOR_REFERENCE"].astype(str)
         # Tenant ID mapping
         df_db = map_tenant_id_column(df_db, "TENANT_ID")
         # Merge with EBO Wallet data
-        result = merge_ebo_wallet_data(df_db, start_date, end_date,get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
 
     except SQLAlchemyError as e:
         logger.error(f"Database error in aeps_Service(): {e}")
@@ -363,15 +371,19 @@ def matm_Service(start_date, end_date, service_name):
         }
         # Map status column
         df_db = map_status_column(
-            df_db, "service_status",  status_mapping,new_column=f"{service_name}_STATUS",
-            drop_original=True)
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
         # Check and convert VENDOR_REFERENCE
         if "VENDOR_REFERENCE" in df_db.columns:
             df_db["VENDOR_REFERENCE"] = df_db["VENDOR_REFERENCE"].astype(str)
         # Tenant ID mapping
         df_db = map_tenant_id_column(df_db, "TENANT_ID")
         # Merge with EBO Wallet data
-        result = merge_ebo_wallet_data(df_db, start_date, end_date,get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
 
     except SQLAlchemyError as e:
         logger.error(f"Database error in Matm_Service(): {e}")

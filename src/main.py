@@ -20,6 +20,7 @@ SERVICE_CONFIGS = {
             "Ref No": "REFID",
             "Txn Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
+            "Debit": "AMOUNT",
         }
     },
     "AEPS": {
@@ -69,7 +70,7 @@ SERVICE_CONFIGS = {
     },
     "UPIQR": {
         "columns": {
-            "TRNSCTN_NMBR": "REFID",
+            "Unique_ID": "REFID",
             "ATHRSD_DATE": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
         },

@@ -12,7 +12,7 @@ from components.outwardservices import (
     dmt_Service,
     passport_service,
     lic_service,
-    astro_service
+    astro_service,
 )
 
 # -----------------------------------------------------------------------------
@@ -77,12 +77,13 @@ SERVICE_CONFIGS = {
         "required_columns": ["REFID"],
         "status_mapping": {
             "Success": "success",
-            "Refunded": "intiated",
+            "Refunded": "failed",
             "Failed": "failed",
         },
         "service_func": dmt_Service,
     },
 }
+
 
 def process_status_column(
     df: pd.DataFrame, service_config: Dict[str, Any]
@@ -124,7 +125,7 @@ def outward_service_selection(
         # Apply preprocessing if defined
         if "processing" in service_config:
             df_excel = service_config["processing"](df_excel)
-            
+
         # Process status column
         df_excel = process_status_column(df_excel, service_config)
 
@@ -223,7 +224,7 @@ def unified_filtering_data(
     ).copy()
     matched["CATEGORY"] = "MATCHED"
     matched = safe_column_select(matched, required_columns)
-
+    # print(matched[matched['IHUB_LEDGER_STATUS'] == 'No'])
     # Mismatched
     mismatch_db_col, mismatch_excel_col = (
         mismatch_on if mismatch_on else (status_column_db, status_column_excel)
@@ -277,7 +278,7 @@ def unified_filtering_data(
                 .isin(["failed", "timed out"])
             )
             & (matched[status_column_db].astype(str).str.lower() == "failed")
-            & (matched[ledger_status_col].astype(str).str.lower() == "no"),
+            & ((matched[ledger_status_col].astype(str).str.lower() == "no") | (matched['TRANSACTION_CREDIT'].astype(str).str.lower() == "no")),
             "IHUB_FAIL_VEND_FAIL-NIL",
         ),
         "ihub_initiate_vend_succes_not_in_ledger": scenario_df(
@@ -308,6 +309,25 @@ def unified_filtering_data(
             )
             & (matched[ledger_status_col].astype(str).str.lower() == "no"),
             "VEND_FAIL_IHUB_INT-NIL",
+        ),
+        "vend_ihub_succ": scenario_df(
+            matched,
+            (matched[status_column_excel].astype(str).str.lower() == "success")
+            & (matched[status_column_db].astype(str).str.lower() == "success")
+            & (matched[ledger_status_col].astype(str).str.lower() == "yes"),
+            "VEND_IHUB_SUC",
+        ),
+        "vend_ihub_fail": scenario_df(
+            matched,
+            (
+                matched[status_column_excel]
+                .astype(str)
+                .str.lower()
+                .isin(["failed", "timed out"])
+            )
+            & (matched[status_column_db].astype(str).str.lower() == "failed")
+            & (matched[ledger_status_col].astype(str).str.lower() == "yes"),
+            "VEND_IHUB_FAIL",
         ),
         "vend_fail_ihub_succ": scenario_df(
             matched,
@@ -359,9 +379,9 @@ def unified_filtering_data(
         ),
     }
     # Add extra scenarios if provided
-    if extra_scenarios:
-        for k, v in extra_scenarios.items():
-            scenarios[k] = v(matched, safe_column_select, required_columns)
+    # if extra_scenarios:
+    #     for k, v in extra_scenarios.items():
+    #         scenarios[k] = v(matched, safe_column_select, required_columns)
 
     # Success/failure counts
     matched_success_status = matched[
@@ -381,7 +401,7 @@ def unified_filtering_data(
         "vend_ihub_succ_not_in_ledger",
         "vend_fail_ihub_succ_not_in_ledger",
         "vend_succ_ihub_fail_not_in_ledger",
-        # "ihub_vend_fail_not_in_ledger",
+        "ihub_vend_fail_not_in_ledger",
         "ihub_initiate_vend_succes_not_in_ledger",
         "ihub_initiate_vend_fail_not_in_ledger",
         "vend_fail_ihub_succ",
@@ -426,6 +446,8 @@ def unified_filtering_data(
             "VEND_FAIL_IHUB_INT-NIL": scenarios[
                 "ihub_initiate_vend_fail_not_in_ledger"
             ],
+            "VEND_IHUB_SUC": scenarios["vend_ihub_succ"],
+            "VEND_IHUB_FAIL": scenarios["vend_ihub_fail"],
             "VEND_FAIL_IHUB_SUC": scenarios["vend_fail_ihub_succ"],
             "VEND_SUC_IHUB_FAIL": scenarios["vend_succ_ihub_fail"],
             "IHUB_INT_VEND_SUC": scenarios["ihub_initiate_vend_succes"],
@@ -444,39 +466,60 @@ def unified_filtering_data(
 # ---------------------------------------------------------------------------------
 
 
-
 # ---------------------------------------------------------------------------------
 # Filtering Function
 def filtering_Data(df_db, df_excel, service_name):
 
     # Use the unified filtering function with parameters matching the old logic
-    required_columns = [
-        "CATEGORY",
-        "VENDOR_DATE",
-        "TENANT_ID",
-        "IHUB_REFERENCE",
-        "REFID",
-        "IHUB_USERNAME",
-        "AMOUNT",
-        "VENDOR_STATUS",
-        "IHUB_MASTER_STATUS",
-        f"{service_name}_STATUS",
-        "SERVICE_DATE",
-        "IHUB_LEDGER_STATUS",
-        "BILL_FETCH_STATUS",
-        "TENANT_LEDGER_STATUS",
-        "TRANSACTION_CREDIT",
-        "TRANSACTION_DEBIT",
-        "COMMISSION_CREDIT",
-        "COMMISSION_REVERSAL",
-    ]
+    if service_name == 'PASSPORT':
+        required_columns = [
+            "CATEGORY",
+            "VENDOR_DATE",
+            "TENANT_ID",
+            "IHUB_REFERENCE",
+            "REFID",
+            "IHUB_USERNAME",
+            "AMOUNT",
+            "HUB_AMOUNT",
+            "VENDOR_STATUS",
+            "IHUB_MASTER_STATUS",
+            f"{service_name}_STATUS",
+            "SERVICE_DATE",
+            "IHUB_LEDGER_STATUS",
+            "BILL_FETCH_STATUS",
+            "TENANT_LEDGER_STATUS",
+            "TRANSACTION_CREDIT",
+            "TRANSACTION_DEBIT",
+            "COMMISSION_CREDIT",
+            "COMMISSION_REVERSAL",
+        ]
+    else:
+        required_columns = [
+            "CATEGORY",
+            "VENDOR_DATE",
+            "TENANT_ID",
+            "IHUB_REFERENCE",
+            "REFID",
+            "IHUB_USERNAME",
+            "AMOUNT",
+            "VENDOR_STATUS",
+            "IHUB_MASTER_STATUS",
+            f"{service_name}_STATUS",
+            "SERVICE_DATE",
+            "IHUB_LEDGER_STATUS",
+            "BILL_FETCH_STATUS",
+            "TENANT_LEDGER_STATUS",
+            "TRANSACTION_CREDIT",
+            "TRANSACTION_DEBIT",
+            "COMMISSION_CREDIT",
+            "COMMISSION_REVERSAL",
+        ]
     amount_column_map = {
         "RECHARGE": "RECHARGE_AMOUNT",
         "LIC": "LIC_AMOUNT",
         "PANNSDL": "Appln Fee (`)",
         "BBPS": "Transaction Amount(RS.)",
         "PANUTI": "Res Amount",
-        "PASSPORT": "Debit",
     }
     status_mapping_db = {
         0: "initiated",
@@ -501,9 +544,3 @@ def filtering_Data(df_db, df_excel, service_name):
 
 
 # Ebo Wallet Amount and commission  Debit credit check function  -------------------------------------------
-
-
-
-
-
-

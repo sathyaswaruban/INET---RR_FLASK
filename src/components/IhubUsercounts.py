@@ -49,13 +49,13 @@ def inet_count():
             WHERE DATE(pph.ExpireTs) > CURRENT_DATE() AND u.UserRoleId = 2 AND u.UserName LIKE 'TN%'
         """,
         "UP_Active_list": """
-            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
+            SELECT u.UserName,u.VleId, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
             FROM tenantinetcsc.`User` u 
             LEFT JOIN tenantinetcsc.UserPurchasedPackage pph ON pph.UserId = u.id
             WHERE DATE(pph.ExpireTs) > CURRENT_DATE() AND u.UserRoleId = 2 AND u.UserName LIKE 'UP%'
         """,
         "current_month_expiry_list": """
-            SELECT u.UserName, u.FirstName, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
+            SELECT u.UserName, u.FirstName,u.VleId, u.MobileNo, u.Email, DATE(pph.ExpireTs) as Expiry_Date
             FROM tenantinetcsc.UserPurchasedPackage pph
             LEFT JOIN tenantinetcsc.`User` u ON u.id = pph.UserId
             WHERE MONTH(pph.ExpireTs) = MONTH(CURDATE())

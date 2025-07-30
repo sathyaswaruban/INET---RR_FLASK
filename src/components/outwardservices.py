@@ -94,7 +94,7 @@ def get_ebo_wallet_data(start_date, end_date):
     ) AS TRANSACTION_CREDIT,
     MAX(CASE WHEN ewt.Description = 'Transaction - Debit' THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
     MAX(CASE WHEN ewt.Description = 'Commission Added' THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
-    MAX(CASE WHEN ewt.Description = 'Commission - Reversal' THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
+    MAX(CASE WHEN ewt.Description IN ('Commission - Reversal','Commission Reversal') THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
 FROM
     ihubcore.MasterTransaction mt2
 JOIN  
@@ -198,53 +198,102 @@ def recharge_Service(start_date, end_date, service_name):
 def Bbps_service(start_date, end_date, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
     result = pd.DataFrame()
-    query = text(
-        f"""
-         SELECT
+    # query = text(
+    #     f"""
+    #      SELECT
+    #     mt2.TransactionRefNum as IHUB_REFERENCE,
+    #     u.Username as IHUB_USERNAME,
+    #     bbp.TxnRefId  as VENDOR_REFERENCE,
+    #     bbp.Amount as AMOUNT,
+    #     bbp.creationTs as SERVICE_DATE,
+    #     mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+    #     mt2.tenantDetailID as TENANT_ID,
+    #     bbp.TransactionStatusType as service_status ,bbp.HeadReferenceId ,
+    #     CASE when iw.IHubReferenceId IS NOT NULL THEN 'Yes'
+    #     ELSE 'NO'
+    #     END AS IHUB_LEDGER_STATUS,
+    #     CASE when bf.id IS NOT NULL THEN 'Yes'
+    #     ELSE 'NO'
+    #     END AS BILL_FETCH_STATUS,
+    #     CASE
+    #             WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+    #             ELSE 'No'
+    #         END AS TENANT_LEDGER_STATUS
+    #     FROM  ihubcore.MasterTransaction mt2
+    #     LEFT JOIN 
+    #     ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
+    #     LEFT JOIN 
+    #     ihubcore.BBPS_BillPay bbp ON bbp.MasterSubTransactionId = mst.Id 
+    #     left join tenantinetcsc.EboDetail ed on ed.Id = mt2.EboDetailId 
+    #     left join tenantinetcsc.`User` u  on u.id = ed.UserId 
+    #     left join (Select DISTINCT iwt.IHubReferenceId from ihubcore.IHubWalletTransaction iwt 
+    #     where date(iwt.creationTs) between  :start_date AND :end_date ) as iw 
+    #     on iw.IHubReferenceId =mt2.TransactionRefNum 
+    #     left join (select DISTINCT bbf.id  from ihubcore.BBPS_BillFetch bbf 
+    #     where date(bbf.creationTs) between  :start_date AND :end_date) as bf 
+    #     on bf.id  = bbp.BBPS_BillFetchId
+    #     LEFT JOIN (
+    #         SELECT DISTINCT IHubReferenceId
+    #         FROM ihubcore.TenantWalletTransaction
+    #         WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+    #     ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum 
+    #     WHERE DATE(bbp.CreationTs) BETWEEN  :start_date AND :end_date 
+        
+    #     """
+    # )
+
+    # Step 1: Load main transaction data
+    core_query =text( f"""
+    SELECT
         mt2.TransactionRefNum as IHUB_REFERENCE,
         u.Username as IHUB_USERNAME,
-        bbp.TxnRefId  as VENDOR_REFERENCE,
+        bbp.TxnRefId as VENDOR_REFERENCE,
         bbp.Amount as AMOUNT,
         bbp.creationTs as SERVICE_DATE,
         mt2.TransactionStatus AS IHUB_MASTER_STATUS,
         mt2.tenantDetailID as TENANT_ID,
-        bbp.TransactionStatusType as service_status ,bbp.HeadReferenceId ,
-        CASE when iw.IHubReferenceId IS NOT NULL THEN 'Yes'
-        ELSE 'NO'
-        END AS IHUB_LEDGER_STATUS,
-        CASE when bf.id IS NOT NULL THEN 'Yes'
-        ELSE 'NO'
-        END AS BILL_FETCH_STATUS,
-        CASE
-                WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
-                ELSE 'No'
-            END AS TENANT_LEDGER_STATUS
-        FROM  ihubcore.MasterTransaction mt2
-        LEFT JOIN 
-        ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
-        LEFT JOIN 
-        ihubcore.BBPS_BillPay bbp ON bbp.MasterSubTransactionId = mst.Id 
-        left join tenantinetcsc.EboDetail ed on ed.Id = mt2.EboDetailId 
-        left join tenantinetcsc.`User` u  on u.id = ed.UserId 
-        left join (Select DISTINCT iwt.IHubReferenceId from ihubcore.IHubWalletTransaction iwt 
-        where date(iwt.creationTs) between  :start_date AND :end_date ) as iw 
-        on iw.IHubReferenceId =mt2.TransactionRefNum 
-        left join (select DISTINCT bbf.id  from ihubcore.BBPS_BillFetch bbf 
-        where date(bbf.creationTs) between  :start_date AND :end_date) as bf 
-        on bf.id  = bbp.BBPS_BillFetchId
-        LEFT JOIN (
-            SELECT DISTINCT IHubReferenceId
-            FROM ihubcore.TenantWalletTransaction
-            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
-        ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum 
-        WHERE DATE(bbp.CreationTs) BETWEEN  :start_date AND :end_date 
-        
-        """
-    )
+        bbp.TransactionStatusType as service_status,
+        bbp.HeadReferenceId
+    FROM ihubcore.MasterTransaction mt2
+    LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
+    LEFT JOIN ihubcore.BBPS_BillPay bbp ON bbp.MasterSubTransactionId = mst.Id
+    LEFT JOIN tenantinetcsc.EboDetail ed ON ed.Id = mt2.EboDetailId
+    LEFT JOIN tenantinetcsc.User u ON u.id = ed.UserId
+    WHERE DATE(bbp.CreationTs) BETWEEN :start_date AND :end_date
+    """)
+    params = {"start_date": start_date, "end_date": end_date}
+
+    core_df = execute_sql_with_retry(core_query,params=params)
+
+    # Step 2: Load flags
+    query = text(f"""
+        SELECT DISTINCT IHubReferenceId FROM ihubcore.IHubWalletTransaction WHERE  DATE(creationTs) BETWEEN :start_date AND :end_date
+    """)
+    ihub_refs = execute_sql_with_retry(query,params=params)
+
+     # Step 2: Load flags
+    query = text(f"""
+        SELECT DISTINCT id FROM ihubcore.BBPS_BillFetch WHERE  DATE(creationTs) BETWEEN :start_date AND :end_date
+    """)
+    bbps_fetch_ids = execute_sql_with_retry(query,params=params)
+
+    query = text(f"""
+        SELECT DISTINCT IHubReferenceId FROM ihubcore.TenantWalletTransaction WHERE  DATE(CreationTs) BETWEEN :start_date AND :end_date
+    """)
+    tenant_refs = execute_sql_with_retry(query,params=params)
+
+    # Step 3: Add flags to core_df
+    core_df["IHUB_LEDGER_STATUS"] = core_df["IHUB_REFERENCE"].isin(ihub_refs["IHubReferenceId"]).map({True: "Yes", False: "No"})
+    core_df["BILL_FETCH_STATUS"] = core_df["HeadReferenceId"].isin(bbps_fetch_ids["id"]).map({True: "Yes", False: "No"})
+    core_df["TENANT_LEDGER_STATUS"] = core_df["IHUB_REFERENCE"].isin(tenant_refs["IHubReferenceId"]).map({True: "Yes", False: "No"})
+
+    # Final result
+    print(core_df.shape[0])
+
     params = {"start_date": start_date, "end_date": end_date}
     try:
-        df_db = execute_sql_with_retry(query, params=params)
-        if df_db.empty:
+        # df_db = execute_sql_with_retry(query, params=params)
+        if core_df.empty:
             logger.warning(f"No data returned for service:{service_name}")
             return pd.DataFrame()
         status_mapping = {
@@ -254,19 +303,19 @@ def Bbps_service(start_date, end_date, service_name):
             3: "inprogress",
             4: "partialsuccuess",
         }
-        df_db = map_status_column(
-            df_db,
+        core_df = map_status_column(
+            core_df,
             "service_status",
             status_mapping,
             new_column=f"{service_name}_STATUS",
             drop_original=True,
         )
-        df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        core_df = map_tenant_id_column(core_df)
+        result = merge_ebo_wallet_data(core_df, start_date, end_date, get_ebo_wallet_data)
     except SQLAlchemyError as e:
-        logger.error(f"Databasr error in PAN_UTI_SERVICE():{e}")
+        logger.error(f"Databasr error in BBPS_SERVICE():{e}")
     except Exception as e:
-        logger.error(f"Unexpected error in PAN_UTI_SERVICE():{e} ")
+        logger.error(f"Unexpected error in BBPS_SERVICE():{e} ")
     return result
 
 
@@ -478,7 +527,7 @@ def Pannsdl_service(start_date, end_date, service_name):
             FROM ihubcore.TenantWalletTransaction
             WHERE DATE(CreationTs) BETWEEN :start_date and :end_date
         ) twt ON twt.IHubReferenceId = mt2.TransactionRefNum
-        WHERE DATE(pit.CreationTs) BETWEEN :start_date and :end_date and pit.AcknowledgeNo  IS NOT NULL
+        WHERE DATE(pit.ApplicationStatusTs) BETWEEN :start_date and :end_date and pit.AcknowledgeNo  IS NOT NULL
         """
     )
     params = {"start_date": start_date, "end_date": end_date}
@@ -529,7 +578,7 @@ def passport_service(start_date, end_date, service_name):
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                pi.BankReferenceTs AS SERVICE_DATE, 
                pi.PassportInStatusType AS service_status,
-               pi.Amount as AMOUNT,
+               pi.Amount as HUB_AMOUNT,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'
