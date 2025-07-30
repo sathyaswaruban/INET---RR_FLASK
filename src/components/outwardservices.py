@@ -785,6 +785,85 @@ def astro_service(start_date, end_date, service_name):
 
 
 # ----------------------------------------------------------------------------------
+#Insurance Offline Function
+def insurance_offline_service(start_date, end_date, service_name):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        f""" 
+        SELECT 
+        mt.TransactionRefNum AS IHUB_REFERENCE,
+        niit.PolicyNumber  AS VENDOR_REFERENCE,
+        u.UserName,
+        mt.TransactionStatus AS IHUB_MASTER_STATUS,
+        mt.TenantDetailId as TENANT_ID,   
+        niit.CreationTs AS SERVICE_DATE,
+        niit.InsuranceStatusType AS service_status,
+        niit.Amount as AMOUNT,
+        CASE 
+            WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
+            ELSE 'No'
+        END AS IHUB_LEDGER_STATUS,
+        CASE
+            WHEN twt.IHubReferenceId IS NOT NULL THEN 'Yes'
+            ELSE 'No'
+        END AS TENANT_LEDGER_STATUS
+        FROM 
+        ihubcore.MasterTransaction mt
+        LEFT JOIN ihubcore.MasterSubTransaction mst
+            ON  mst.MasterTransactionId =  mt.id 
+        LEFT JOIN  ihubcore.NewIndiaInsuranceTransaction niit  
+            ON mst.Id = niit.MasterSubTransactionId 
+        LEFT JOIN tenantinetcsc.EboDetail ed
+            ON mt.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u
+            ON u.Id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT IHubReferenceId
+            FROM ihubcore.IHubWalletTransaction
+            WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+        ) iwt ON iwt.IHubReferenceId = mt.TransactionRefNum
+        LEFT JOIN (
+                    SELECT DISTINCT IHubReferenceId
+                    FROM ihubcore.TenantWalletTransaction
+                    WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+                ) twt ON twt.IHubReferenceId = mt.TransactionRefNum
+        WHERE 
+        DATE(niit.CreationTs) BETWEEN :start_date AND :end_date 
+    """
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+
+    try:
+
+        df_db = execute_sql_with_retry(query, params=params)
+        if df_db.empty:
+            logger.warning(f"No data returned for service: {service_name}")
+            return pd.DataFrame()
+        # Status mapping with fallback
+        status_mapping = {
+            0: "unknown",
+            1: "NewRequest",
+            2: "InProcess",
+            3: "Completed",
+            4: "Rejected",
+        }
+        df_db = map_status_column(
+            df_db,
+            "service_status",
+            status_mapping,
+            new_column=f"{service_name}_STATUS",
+            drop_original=True,
+        )
+        df_db = map_tenant_id_column(df_db)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)    
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in insurance_offline_service(): {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in insurance_offline_service(): {e}")
+    return result
+
+
 
 
 # tenant database filtering function------------------------------------------------

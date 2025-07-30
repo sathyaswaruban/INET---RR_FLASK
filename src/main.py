@@ -4,6 +4,7 @@ from logger_config import logger
 from inwardservice import inward_service_selection
 from handler import handler
 from upiQrfiltering import upiQr_service_selection
+import re
 
 # Define service configurations as constants
 SERVICE_CONFIGS = {
@@ -82,6 +83,13 @@ SERVICE_CONFIGS = {
             "STATUS": "VENDOR_STATUS",
         }
     },
+    "INSURANCE_OFFLINE": {
+        "columns": {
+            "Issued Date": "VENDOR_DATE",
+            "Status": "VENDOR_STATUS",
+            "Policy No": "REFID",
+        }
+    },
 }
 
 INWARD_SERVICES = {"AEPS", "MATM"}
@@ -97,6 +105,7 @@ OUTWARD_SERVICES = {
     "PANUTI",
     "PANNSDL",
     "DMT",
+    "INSURANCE_OFFLINE",
 }
 
 
@@ -148,7 +157,13 @@ def main(from_date, to_date, service_name, file, transaction_type=None):
 
         # Rename columns based on service configuration
         df_excel = df_excel.rename(columns=service_config["columns"])
-
+        print(df_excel["REFID"])
+        print(df_excel["REFID"].str.len().value_counts()) 
+        if service_name== "INSURANCE_OFFLINE":
+            if service_name == "INSURANCE_OFFLINE":
+                df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(0, 20)
+        print(df_excel["REFID"].str.len().value_counts()) 
+        print(df_excel["REFID"])
         # Process date columns
         df_excel = process_date_columns(df_excel, service_name, service_config)
 

@@ -13,6 +13,7 @@ from components.outwardservices import (
     passport_service,
     lic_service,
     astro_service,
+    insurance_offline_service,
 )
 
 # -----------------------------------------------------------------------------
@@ -81,6 +82,10 @@ SERVICE_CONFIGS = {
             "Failed": "failed",
         },
         "service_func": dmt_Service,
+    },
+    "INSURANCE_OFFLINE": {
+        "required_columns": ["REFID"],
+        "service_func": insurance_offline_service,
     },
 }
 
@@ -520,6 +525,7 @@ def filtering_Data(df_db, df_excel, service_name):
         "PANNSDL": "Appln Fee (`)",
         "BBPS": "Transaction Amount(RS.)",
         "PANUTI": "Res Amount",
+        "INSURANCE_OFFLINE": "Total Amount",
     }
     status_mapping_db = {
         0: "initiated",
