@@ -1,9 +1,8 @@
-from filteration_process import outward_service_selection
+from components.filteration_process import service_selection
 import pandas as pd
 from logger_config import logger
-from inwardservice import inward_service_selection
-from handler import handler
-from upiQrfiltering import upiQr_service_selection
+from components.upiQrfiltering import upiQr_service_selection
+from components.upservices import up_service_selection
 import re
 
 # Define service configurations as constants
@@ -49,9 +48,8 @@ SERVICE_CONFIGS = {
     "MATM": {
         "columns": {
             "Date": "VENDOR_DATE",
-            "Remarks": "VENDOR_STATUS",
-            "Utr": "REFID",
-            "Amount": "AMOUNT",
+            "TRANSACTIONSTATUS": "VENDOR_STATUS",
+            "RRN": "REFID",
         }
     },
     "LIC": {
@@ -73,7 +71,7 @@ SERVICE_CONFIGS = {
         "columns": {
             "Unique_ID": "REFID",
             "ATHRSD_DATE": "VENDOR_DATE",
-            "Status": "VENDOR_STATUS",
+            "STATUS": "VENDOR_STATUS",
         },
         "day_first": True,
     },
@@ -90,23 +88,31 @@ SERVICE_CONFIGS = {
             "Policy No": "REFID",
         }
     },
+    "ABHIBUS": {
+        "columns": {
+            "Tkt. Number": "REFID",
+            "Booked Date": "VENDOR_DATE",
+            "Status": "VENDOR_STATUS",
+        },
+    },
+    "SULTANPURSCA": {
+        "columns": {
+            "Application ID": "REFID",
+            "Transaction Date": "VENDOR_DATE",
+        },
+        "date_format": "%d/%m/%Y",
+        "day_first": True,
+    },
+    "SULTANPUR_IS": {
+        "columns": {
+            "Quota ID": "REFID",
+            "Transaction Date": "VENDOR_DATE",
+        },
+        # "date_format": "%d-%m-%Y %H:%M:%S",
+    },
 }
 
-INWARD_SERVICES = {"AEPS", "MATM"}
-OUTWARD_SERVICES = {
-    "RECHARGE",
-    "IMT",
-    "Pan_NSDL",
-    "LIC",
-    "BBPS",
-    "PASSPORT",
-    "ABHIBUS",
-    "ASTRO",
-    "PANUTI",
-    "PANNSDL",
-    "DMT",
-    "INSURANCE_OFFLINE",
-}
+UPPS_SERVICES = {"SULTANPURSCA","SULTANPUR_IS"}
 
 
 def process_date_columns(df, service_name, service_config):
@@ -127,18 +133,14 @@ def select_service_handler(
     service_name, from_date, to_date, df_excel, transaction_type=None
 ):
     """Select the appropriate service handler based on service type"""
-    if service_name in INWARD_SERVICES:
-        logger.info(f"inward_service: {service_name}")
-        return inward_service_selection(
-            from_date, to_date, service_name, transaction_type, df_excel
-        )
-    elif service_name in OUTWARD_SERVICES:
-        logger.info(f"outward_service: {service_name}")
-        return outward_service_selection(from_date, to_date, service_name, df_excel)
-    elif service_name == "UPIQR":
+    if service_name == "UPIQR":
         logger.info(f"UpiQr_service: {service_name}")
         return upiQr_service_selection(from_date, to_date, service_name, df_excel)
-    return None
+    elif service_name in UPPS_SERVICES:
+        logger.info(f"Upps_service: {service_name}")
+        return up_service_selection(from_date, to_date, service_name, df_excel)
+    else:
+        return service_selection(from_date, to_date, service_name, df_excel)
 
 
 def main(from_date, to_date, service_name, file, transaction_type=None):
@@ -157,14 +159,15 @@ def main(from_date, to_date, service_name, file, transaction_type=None):
 
         # Rename columns based on service configuration
         df_excel = df_excel.rename(columns=service_config["columns"])
-        print(df_excel["REFID"])
-        print(df_excel["REFID"].str.len().value_counts()) 
-        if service_name== "INSURANCE_OFFLINE":
+
+        if service_name in ["INSURANCE_OFFLINE","SULTANPUR_IS"]:
             if service_name == "INSURANCE_OFFLINE":
                 df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(0, 20)
-        print(df_excel["REFID"].str.len().value_counts()) 
-        print(df_excel["REFID"])
+            else :
+                df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(1,11)
+        # print(repr(df_excel["VENDOR_DATE"].iloc[0]))
         # Process date columns
+
         df_excel = process_date_columns(df_excel, service_name, service_config)
 
         # Convert input dates

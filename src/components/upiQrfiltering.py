@@ -40,6 +40,7 @@ def upiQr_service_selection(start_date, end_date, service_name, df_excel):
         if service_name == "UPIQR":
             if "TRNSCTN_NMBR" in df_excel:
                 hub_data = UpiQr_Service(start_date, end_date, service_name)
+                df_excel["VENDOR_STATUS"] = df_excel["VENDOR_STATUS"].fillna("failed").apply(lambda x: "success" if x.lower() == "authorised" else "failed")
                 result = filtering_Data(hub_data, df_excel, service_name)
             else:
                 logger.warning("Wrong File Uploaded for UPIQR function")

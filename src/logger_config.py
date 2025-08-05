@@ -9,7 +9,7 @@ month_str = f"{today.month:02d}"
 day_str = f"{today.day:02d}"
 
 # Directory: logs/YYYY/MM/
-log_dir = os.path.join("D:/INET---RR_FLASK/logs", year_str, month_str)
+log_dir = os.path.join("D:/INET_RR_FLASK/logs", year_str, month_str)
 os.makedirs(log_dir, exist_ok=True)
 
 # Filename: Reconciliation_YYYY-MM-DD.log

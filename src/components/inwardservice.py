@@ -1,7 +1,4 @@
 # --- DRY Helper Functions are now in recon_utils.py ---
-from recon_utils import map_status_column, map_tenant_id_column, merge_ebo_wallet_data
-
-
 import pandas as pd
 from db_connector import get_db_connection
 from logger_config import logger
@@ -14,7 +11,11 @@ from tenacity import (
     retry_if_exception_type,
 )
 from sqlalchemy.exc import OperationalError, DatabaseError
-from filteration_process import unified_filtering_data
+from components.recon_utils import (
+    map_status_column,
+    map_tenant_id_column,
+    merge_ebo_wallet_data,
+)
 
 engine = get_db_connection()
 
@@ -36,142 +37,7 @@ def execute_sql_with_retry(query, params=None):
             return df
         except Exception as e:
             logger.error(f"Error during SQL execution: {e}")
-            raise  # This will trigger retry if it's an OperationalError or DatabaseError
-
-
-def inward_service_selection(
-    start_date, end_date, service_name, transaction_type, df_excel
-):
-    try:
-        logger.info(f"Entering Reconciliation for {service_name} Service")
-
-        if service_name == "AEPS":
-            if "REFID" in df_excel:
-                df_excel["REFID"] = df_excel["REFID"].astype(str)
-                logger.info("AEPS service: Column 'SERIALNUMBER' renamed to 'REFID'")
-                # tenant_service_id = 159
-                # Hub_service_id = 7374
-                # Hub_service_id = ",".join(str(x) for x in Hub_service_id)
-                hub_data = aeps_Service(
-                    start_date, end_date, service_name, transaction_type
-                )
-                # tenant_data = tenant_filtering(
-                #     start_date, end_date, tenant_service_id, Hub_service_id
-                # )
-                result = filtering_Data(hub_data, df_excel, service_name)
-            else:
-                logger.warning("Wrong File Uploaded in AEPS Function")
-                message = "Wrong File Updloaded...!"
-                return message
-        elif service_name == "MATM":
-            if "REFID" in df_excel:
-                df_cleaned = df_excel[
-                    ~(
-                        df_excel["orderID"].isna()
-                        & df_excel["REFID"].isna()
-                        & df_excel["Device"].isna()
-                    )
-                ].copy()
-                # df_cleaned["REFID"] = df_excel["REFID"].astype(str)
-                df_cleaned["VENDOR_STATUS"] = df_cleaned["VENDOR_STATUS"].apply(
-                    lambda x: (
-                        "success"
-                        if str(x).strip().lower() == "transaction successful."
-                        else "failed"
-                    )
-                )
-
-                hub_data = matm_Service(start_date, end_date, service_name)
-                result = filtering_Data(hub_data, df_cleaned, service_name)
-            else:
-                logger.warning("Wrong File Uploaded in MATM function")
-                message = "Wrong File Updloaded...!"
-                return message
-        else:
-            logger.warning("InwardService  function selection Error ")
-            message = "Service Name Error..!"
-            return message
-
-        return result
-    except Exception as e:
-        print("Error in inward function :", e)
-
-
-def getServiceId(MasterServiceId, MasterVendorId):
-    logger.info("Entered Get Service ID Function")
-    result = None
-
-    query = text(
-        """
-        SELECT vssm.id FROM ihubcore.VendorSubServiceMapping vssm join ihubcore.MasterSubService mss  on vssm.MasterSubServiceId =mss.Id
-        join ihubcore.MasterService ms on ms.id=mss.MasterServiceId
-        join ihubcore.MasterVendor mv on vssm.MasterVendorId =mv.id
-        where ms.Id = :MasterServiceId and mv.id = :MasterVendorId
-        """
-    )
-    params = {"MasterServiceId": MasterServiceId, "MasterVendorId": MasterVendorId}
-    try:
-        df = execute_sql_with_retry(
-            query,
-            params=params,
-        )
-
-        if df.empty:
-            logger.warning("No values returned from Get Service Id Function")
-            return pd.DataFrame()
-        else:
-            result = df
-    except SQLAlchemyError as e:
-        logger.error(f"Database error :{e}")
-    except Exception as e:
-        logger.error(f"Unexpected error : {e}")
-    return result
-
-
-# Use the unified filtering function with parameters matching the old logic
-def filtering_Data(df_db, df_excel, service_name):
-    required_columns = [
-        "CATEGORY",
-        "VENDOR_DATE",
-        "TENANT_ID",
-        "IHUB_REFERENCE",
-        "REFID",
-        "IHUB_USERNAME",
-        "AMOUNT",
-        "VENDOR_STATUS",
-        "IHUB_MASTER_STATUS",
-        f"{service_name}_STATUS",
-        "SERVICE_DATE",
-        "IHUB_LEDGER_STATUS",
-        "TRANSACTION_CREDIT",
-        "TRANSACTION_DEBIT",
-        "COMMISSION_CREDIT",
-        "COMMISSION_REVERSAL",
-    ]
-    amount_column_map = {
-        "AEPS": "AEPS_AMOUNT",
-        "MATM": "MATM_AMOUNT",
-    }
-    status_mapping_db = {
-        0: "initiated",
-        1: "success",
-        2: "failed",
-        3: "inprogress",
-        4: "partial success",
-    }
-    return unified_filtering_data(
-        df_db,
-        df_excel,
-        service_name,
-        status_column_db="IHUB_MASTER_STATUS",
-        status_column_excel="VENDOR_STATUS",
-        required_columns=required_columns,
-        amount_column_map=amount_column_map,
-        ledger_status_col="IHUB_LEDGER_STATUS",
-        status_mapping_db=status_mapping_db,
-        logger_obj=logger,
-    )
-
+            raise  
 
 # Ebo Wallet Amount and commission  Debit credit check function  -------------------------------------------
 def get_ebo_wallet_data(start_date, end_date):
@@ -229,6 +95,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
             par.ReferenceNo  AS VENDOR_REFERENCE,
             mt2.TenantDetailId as TENANT_ID,
             u.UserName as IHUB_USERNAME,
+            mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             pat.CreationTs AS SERVICE_DATE,
             pat.TransStatus AS service_status,
@@ -317,6 +184,7 @@ def matm_Service(start_date, end_date, service_name):
             iwmt.Rrn AS VENDOR_REFERENCE,
             mt2.TenantDetailId as TENANT_ID,
             u.UserName as IHUB_USERNAME,
+            mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             iwmt.CreationTs AS SERVICE_DATE,
             iwmt.Amount AS MATM_AMOUNT,
