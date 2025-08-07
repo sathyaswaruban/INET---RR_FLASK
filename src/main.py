@@ -103,6 +103,14 @@ SERVICE_CONFIGS = {
         "date_format": "%d/%m/%Y",
         "day_first": True,
     },
+    "CHITRAKOOT_SCA": {
+        "columns": {
+            "Application ID": "REFID",
+            "Transaction Date": "VENDOR_DATE",
+        },
+        "date_format": "%d/%m/%Y",
+        "day_first": True,
+    },
     "SULTANPUR_IS": {
         "columns": {
             "Quota ID": "REFID",
@@ -110,22 +118,32 @@ SERVICE_CONFIGS = {
         },
         # "date_format": "%d-%m-%Y %H:%M:%S",
     },
+    "CHITRAKOOT_IS": {
+        "columns": {
+            "Quota ID": "REFID",
+            "Transaction Date": "VENDOR_DATE",
+        },
+    },
 }
 
-UPPS_SERVICES = {"SULTANPURSCA","SULTANPUR_IS"}
+UPPS_SERVICES = {"SULTANPURSCA", "SULTANPUR_IS", "CHITRAKOOT_IS", "CHITRAKOOT_SCA"}
 
 
 def process_date_columns(df, service_name, service_config):
-    if "VENDOR_DATE" in df:
-        date_params = {
-            "errors": "coerce",
-            "dayfirst": service_config.get("day_first", False),
-        }
+    try:
+        if "VENDOR_DATE" in df:
+            date_params = {
+                "errors": "coerce",
+                "dayfirst": service_config.get("day_first", False),
+            }
 
-        if "date_format" in service_config:
-            date_params["format"] = service_config["date_format"]
+            if "date_format" in service_config:
+                date_params["format"] = service_config["date_format"]
 
-        df["VENDOR_DATE"] = pd.to_datetime(df["VENDOR_DATE"], **date_params).dt.date
+            df["VENDOR_DATE"] = pd.to_datetime(df["VENDOR_DATE"], **date_params).dt.date
+    except Exception as e:
+        print(e)
+        logger.error("Error in Date_Processing(): %s", str(e))
     return df
 
 
@@ -140,6 +158,7 @@ def select_service_handler(
         logger.info(f"Upps_service: {service_name}")
         return up_service_selection(from_date, to_date, service_name, df_excel)
     else:
+        logger.info(f"Ihub service: {service_name}")
         return service_selection(from_date, to_date, service_name, df_excel)
 
 
@@ -160,14 +179,13 @@ def main(from_date, to_date, service_name, file, transaction_type=None):
         # Rename columns based on service configuration
         df_excel = df_excel.rename(columns=service_config["columns"])
 
-        if service_name in ["INSURANCE_OFFLINE","SULTANPUR_IS"]:
+        if service_name in ["INSURANCE_OFFLINE", "SULTANPUR_IS", "CHITRAKOOT_IS"]:
             if service_name == "INSURANCE_OFFLINE":
                 df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(0, 20)
-            else :
-                df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(1,11)
+            else:
+                df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(1, 11)
         # print(repr(df_excel["VENDOR_DATE"].iloc[0]))
         # Process date columns
-
         df_excel = process_date_columns(df_excel, service_name, service_config)
 
         # Convert input dates

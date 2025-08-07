@@ -111,11 +111,10 @@ def filtering_Data(df_db, df_excel, service_name):
         ).copy()
         matched["CATEGORY"] = "MATCHED"
         matched = safe_column_select(matched, required_columns)
-
         # 1 Filtering Data initiated in IHUB portal and not in Vendor Xl
         not_in_vendor = df_db[~df_db["VENDOR_REFERENCE"].isin(df_excel["REFID"])].copy()
         not_in_vendor["CATEGORY"] = "NOT_IN_VENDOR"
-        not_in_vendor= not_in_vendor.rename(columns={"VENDOR_REFERENCE" : "REFID"})
+        not_in_vendor = not_in_vendor.rename(columns={"VENDOR_REFERENCE": "REFID"})
         not_in_vendor = safe_column_select(not_in_vendor, required_columns)
         # 2. Filtering Data Present in Vendor XL but Not in Ihub Portal
         not_in_portal_1 = df_excel[
@@ -123,45 +122,35 @@ def filtering_Data(df_db, df_excel, service_name):
         ].copy()
         not_in_portal_app_ids = not_in_portal_1["REFID"]
 
-        if not not_in_portal_app_ids.dropna().empty :
-            query=text("""
-            SELECT u.UserName as EBO_ID, ed.Name as USERNAME, udt.VleId as VLE_ID, 
-                   udt.ApplicationId as VENDOR_REFERENCE, uds.Code as SERVICE_CODE, 
-                   udt.Count as APPLICATION_COUNT, udt.Commission as RATE, 
-                   udt.Amount as TOTAL_AMOUNT, 
-                   CASE WHEN u.jansevaType = 1 THEN 'Jenseva Kendra'
-                        WHEN u.jansevaType = 2 THEN 'Panchayat Sahayak'
-                        ELSE 'EBO' END as JENSEVA_TYPE,
-                   udt.CreationTs AS SERVICE_DATE, sd.Name AS SUB_DISTRICT, 
-                   ed.VillageName As VILLAGE
-            FROM tenantinetcsc.UpeDistrictTransaction udt
-            LEFT JOIN tenantinetcsc.EboDetail ed ON ed.id = udt.EboDetailId
-            LEFT JOIN tenantinetcsc.`User` u ON ed.UserId = u.id
-            LEFT JOIN tenantinetcsc.UpeDistrictService uds ON uds.id = udt.UpeDistrictServiceId
-            LEFT JOIN tenantinetcsc.SubDistrict sd ON sd.id = ed.SubDistrictId
-            WHERE udt.ApplicationId IN :app_ids
-            """)
+        if not not_in_portal_app_ids.dropna().empty:
+            service = SERVICE_CONFIGS[service_name]
+            query = service["Date_diff_query"]
             params = {"app_ids": tuple(not_in_portal_app_ids)}
             not_in_portal_1_db_check = execute_sql_with_retry(query, params=params)
             in_portal_date_diff_df = not_in_portal_1_db_check.merge(
-            df_excel,left_on="VENDOR_REFERENCE", right_on="REFID", how="inner"
+                df_excel, left_on="VENDOR_REFERENCE", right_on="REFID", how="inner"
             ).copy()
-            in_portal_date_diff_df["CATEGORY"] = 'IN_PORTAL_DIFF_DATE'
-            not_in_portal = not_in_portal_1[~not_in_portal_1['REFID'].isin(in_portal_date_diff_df["VENDOR_REFERENCE"])].copy()
+            in_portal_date_diff_df["CATEGORY"] = "IN_PORTAL_DIFF_DATE"
+            not_in_portal = not_in_portal_1[
+                ~not_in_portal_1["REFID"].isin(
+                    in_portal_date_diff_df["VENDOR_REFERENCE"]
+                )
+            ].copy()
             in_portal_date_diff_df["SERVICE_DATE"] = pd.to_datetime(
                 in_portal_date_diff_df["SERVICE_DATE"], errors="coerce"
             ).dt.strftime("%Y-%m-%d")
-            in_portal_date_diff_df = safe_column_select(in_portal_date_diff_df, required_columns)
-
+            in_portal_date_diff_df = safe_column_select(
+                in_portal_date_diff_df, required_columns
+            )
             not_in_portal["CATEGORY"] = "NOT_IN_PORTAL"
             not_in_portal = safe_column_select(not_in_portal, required_columns)
             success_count = matched.shape[0] + in_portal_date_diff_df.shape[0]
             Hub_count = df_db.shape[0] + in_portal_date_diff_df.shape[0]
-        else :
+        else:
             if not_in_portal_1.empty and not_in_vendor.empty:
-                message= "Hurray..! There is no mismatch Data Found."
-                
-            not_in_portal= not_in_portal_1
+                message = "Hurray..! There is no mismatch Data Found."
+
+            not_in_portal = not_in_portal_1
             Hub_count = df_db.shape[0]
             success_count = matched.shape[0]
             in_portal_date_diff_df = None
@@ -180,7 +169,7 @@ def filtering_Data(df_db, df_excel, service_name):
             "HUB_Value_count": Hub_count,
             "Total_Success_count": success_count,
             "Total_Failed_count": failed_count,
-            "message":message
+            "message": message,
         }
         return mapping
 
@@ -191,67 +180,11 @@ def filtering_Data(df_db, df_excel, service_name):
         return message
 
 
-# ----------------------------------------------------------------------------------
-# ----------------------------------------------------------------------------------
-# UpiQr_Service Function
-def sultanpu_sca_service_function(start_date, end_date, service_name):
+def service_function(start_date, end_date, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
     result = pd.DataFrame()
-    query = text(
-        """ SELECT u.UserName as EBO_ID,ed.Name as USERNAME,udt.VleId as VLE_ID,udt.ApplicationId as VENDOR_REFERENCE ,uds.Code as SERVICE_CODE,udt.Count as APPLICATION_COUNT,udt.Commission as RATE,udt.Amount as TOTAL_AMOUNT,
-            CASE WHEN u.jansevaType = 1 THEN 'Jenseva Kendra'
-                WHEN u.jansevaType = 2 THEN 'Panchayat Sahayak'
-                ELSE 'EBO' 
-                END as JENSEVA_TYPE,
-                udt.CreationTs AS SERVICE_DATE,sd.Name AS SUB_DISTRICT,ed.VillageName As VILLAGE
-            FROM tenantinetcsc.UpeDistrictTransaction udt 
-            LEFT JOIN tenantinetcsc.EboDetail ed on ed.id = udt.EboDetailId 
-            LEFT JOIN tenantinetcsc.`User` u on ed.UserId = u.id
-            LEFT JOIN tenantinetcsc.UpeDistrictService uds on uds.id = udt.UpeDistrictServiceId
-            LEFT JOIN tenantinetcsc.SubDistrict sd on sd.id = ed.SubDistrictId
-        where DATE(udt.CreationTs) BETWEEN :start_date AND :end_date and udt.UpeDistrictServiceId not in (1)
-    """
-    )
-    params = {
-        "start_date": start_date,
-        "end_date": end_date,
-    }
-    try:
-        # Safe query execution with retry
-        df_db = execute_sql_with_retry(query, params=params)
-
-        if df_db.empty:
-            logger.warning(f"No data returned for service: {service_name}")
-            return pd.DataFrame()
-
-        df_db["VENDOR_REFERENCE"] = df_db["VENDOR_REFERENCE"].astype(str)
-        result = df_db
-
-    except SQLAlchemyError as e:
-        logger.error(f"Database error in UPIQR_Service(): {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error in UPIQR_Service(): {e}")
-
-    return result
-
-def sultanpu_integrated_service_function(start_date, end_date, service_name):
-    logger.info(f"Fetching data from HUB for {service_name}")
-    result = pd.DataFrame()
-    query = text(
-        """ SELECT u.UserName as EBO_ID,ed.Name as USERNAME,udt.VleId as VLE_ID,udt.QuotaId as VENDOR_REFERENCE ,uds.Code as SERVICE_CODE,udt.Count as APPLICATION_COUNT,udt.Commission as RATE,udt.Amount as TOTAL_AMOUNT,
-            CASE WHEN u.jansevaType = 1 THEN 'Jenseva Kendra'
-                WHEN u.jansevaType = 2 THEN 'Panchayat Sahayak'
-                ELSE 'EBO' 
-                END as JENSEVA_TYPE,
-                udt.CreationTs AS SERVICE_DATE,sd.Name AS SUB_DISTRICT,ed.VillageName As VILLAGE
-            FROM tenantinetcsc.UpeDistrictTransaction udt 
-            LEFT JOIN tenantinetcsc.EboDetail ed on ed.id = udt.EboDetailId 
-            LEFT JOIN tenantinetcsc.`User` u on ed.UserId = u.id
-            LEFT JOIN tenantinetcsc.UpeDistrictService uds on uds.id = udt.UpeDistrictServiceId
-            LEFT JOIN tenantinetcsc.SubDistrict sd on sd.id = ed.SubDistrictId
-        where DATE(udt.CreationTs) BETWEEN :start_date AND :end_date and udt.UpeDistrictServiceId in (1)
-    """
-    )
+    service = SERVICE_CONFIGS[service_name]
+    query = service["main_query"]
     params = {
         "start_date": start_date,
         "end_date": end_date,
@@ -278,10 +211,191 @@ def sultanpu_integrated_service_function(start_date, end_date, service_name):
 SERVICE_CONFIGS = {
     "SULTANPURSCA": {
         "required_columns": ["REFID"],
-        "service_func": sultanpu_sca_service_function,
+        "main_query": text(
+            """ SELECT u.UserName AS EBO_ID,ed.Name AS USERNAME,udt.VleId AS VLE_ID,udt.ApplicationId AS VENDOR_REFERENCE,
+                            uds.Code AS SERVICE_CODE,udt.Count AS APPLICATION_COUNT,
+                            udt.Commission AS RATE,udt.Amount AS TOTAL_AMOUNT,
+                            CASE 
+                                WHEN u.jansevaType = 1 THEN 'Jenseva Kendra'
+                                WHEN u.jansevaType = 2 THEN 'Panchayat Sahayak'
+                                ELSE 'EBO' 
+                            END AS JENSEVA_TYPE,
+                            udt.CreationTs AS SERVICE_DATE,
+                            sd.Name AS SUB_DISTRICT,
+                            ed.VillageName AS VILLAGE
+                            FROM tenantinetcsc.UpeDistrictTransaction udt
+                            JOIN (
+                                SELECT MIN(id) AS min_id
+                                FROM tenantinetcsc.UpeDistrictTransaction
+                                WHERE DATE(CreationTs) BETWEEN :start_date AND :end_date
+                                AND UpeDistrictServiceId NOT IN (1)
+                                GROUP BY ApplicationId
+                            ) uniq ON udt.id = uniq.min_id
+                            LEFT JOIN tenantinetcsc.EboDetail ed ON ed.id = udt.EboDetailId 
+                            LEFT JOIN tenantinetcsc.`User` u ON ed.UserId = u.id
+                            LEFT JOIN tenantinetcsc.UpeDistrictService uds ON uds.id = udt.UpeDistrictServiceId
+                            LEFT JOIN tenantinetcsc.SubDistrict sd ON sd.id = ed.SubDistrictId;
+                        """
+        ),
+        "Date_diff_query": text(
+            """SELECT u.UserName AS EBO_ID,ed.Name AS USERNAME,udt.VleId AS VLE_ID,udt.ApplicationId AS VENDOR_REFERENCE,
+                                uds.Code AS SERVICE_CODE,udt.Count AS APPLICATION_COUNT,udt.Commission AS RATE,udt.Amount AS TOTAL_AMOUNT,
+                                CASE 
+                                    WHEN u.jansevaType = 1 THEN 'Jenseva Kendra'
+                                    WHEN u.jansevaType = 2 THEN 'Panchayat Sahayak'
+                                    ELSE 'EBO' 
+                                END AS JENSEVA_TYPE,
+                                udt.CreationTs AS SERVICE_DATE,
+                                sd.Name AS SUB_DISTRICT,
+                                    ed.VillageName AS VILLAGE
+                                FROM tenantinetcsc.UpeDistrictTransaction udt
+                                JOIN (
+                                    SELECT ApplicationId, MAX(CreationTs) AS max_ts
+                                    FROM tenantinetcsc.UpeDistrictTransaction
+                                    WHERE UpeDistrictServiceId NOT IN (1)
+                                    AND ApplicationId IN :app_ids
+                                    GROUP BY ApplicationId
+                                ) AS latest ON udt.ApplicationId = latest.ApplicationId AND udt.CreationTs = latest.max_ts
+                                LEFT JOIN tenantinetcsc.EboDetail ed ON ed.id = udt.EboDetailId
+                                LEFT JOIN tenantinetcsc.`User` u ON ed.UserId = u.id
+                                LEFT JOIN tenantinetcsc.UpeDistrictService uds ON uds.id = udt.UpeDistrictServiceId
+                                LEFT JOIN tenantinetcsc.SubDistrict sd ON sd.id = ed.SubDistrictId;
+                            """
+        ),
+        "service_func": service_function,
     },
     "SULTANPUR_IS": {
         "required_columns": ["REFID"],
-        "service_func": sultanpu_integrated_service_function,
+        "main_query": text(
+            """ SELECT u.UserName AS EBO_ID,ed.Name AS USERNAME,udt.VleId AS VLE_ID,udt.QuotaId AS VENDOR_REFERENCE,
+                            uds.Code AS SERVICE_CODE,udt.Count AS APPLICATION_COUNT,udt.Commission AS RATE,udt.Amount AS TOTAL_AMOUNT,
+                            CASE 
+                            WHEN u.jansevaType = 1 THEN 'Jenseva Kendra'
+                            WHEN u.jansevaType = 2 THEN 'Panchayat Sahayak'
+                            ELSE 'EBO' 
+                            END AS JENSEVA_TYPE,
+                            udt.CreationTs AS SERVICE_DATE,sd.Name AS SUB_DISTRICT,ed.VillageName AS VILLAGE
+                            FROM tenantinetcsc.UpeDistrictTransaction udt
+                            JOIN (
+                                SELECT 
+                            QuotaId, 
+                            MAX(CreationTs) AS max_ts
+                            FROM tenantinetcsc.UpeDistrictTransaction
+                            WHERE 
+                                DATE(CreationTs) BETWEEN :start_date AND :end_date
+                                AND UpeDistrictServiceId IN (1)
+                                GROUP BY QuotaId
+                            ) AS latest ON udt.QuotaId = latest.QuotaId AND udt.CreationTs = latest.max_ts
+                            LEFT JOIN tenantinetcsc.EboDetail ed ON ed.id = udt.EboDetailId
+                            LEFT JOIN tenantinetcsc.`User` u ON ed.UserId = u.id
+                            LEFT JOIN tenantinetcsc.UpeDistrictService uds ON uds.id = udt.UpeDistrictServiceId
+                            LEFT JOIN tenantinetcsc.SubDistrict sd ON sd.id = ed.SubDistrictId
+                            WHERE udt.UpeDistrictServiceId IN (1);
+                    """
+        ),
+        "Date_diff_query": text(
+            """SELECT u.UserName AS EBO_ID,ed.Name AS USERNAME,udt.VleId AS VLE_ID,udt.QuotaId AS VENDOR_REFERENCE,
+                                uds.Code AS SERVICE_CODE,udt.Count AS APPLICATION_COUNT,udt.Commission AS RATE,udt.Amount AS TOTAL_AMOUNT,
+                                CASE 
+                                    WHEN u.jansevaType = 1 THEN 'Jenseva Kendra'
+                                    WHEN u.jansevaType = 2 THEN 'Panchayat Sahayak'
+                                    ELSE 'EBO' 
+                                END AS JENSEVA_TYPE,
+                                udt.CreationTs AS SERVICE_DATE,
+                                sd.Name AS SUB_DISTRICT,
+                                ed.VillageName AS VILLAGE
+                                FROM tenantinetcsc.UpeDistrictTransaction udt
+                                JOIN (
+                                SELECT 
+                                    ApplicationId,
+                                    MAX(CreationTs) AS max_ts
+                                FROM tenantinetcsc.UpeDistrictTransaction
+                                WHERE ApplicationId IN :app_ids AND UpeDistrictServiceId IN (1)
+                                GROUP BY ApplicationId
+                                ) AS latest ON udt.ApplicationId = latest.ApplicationId AND udt.CreationTs = latest.max_ts
+                                LEFT JOIN tenantinetcsc.EboDetail ed ON ed.id = udt.EboDetailId
+                                LEFT JOIN tenantinetcsc.`User` u ON ed.UserId = u.id
+                                LEFT JOIN tenantinetcsc.UpeDistrictService uds ON uds.id = udt.UpeDistrictServiceId
+                                LEFT JOIN tenantinetcsc.SubDistrict sd ON sd.id = ed.SubDistrictId
+                                WHERE udt.UpeDistrictServiceId IN (1)
+                        """
+        ),
+        "service_func": service_function,
+    },
+    "CHITRAKOOT_SCA": {
+        "required_columns": ["REFID"],
+        "main_query": text(
+            """ SELECT u.apna_id AS EBO_ID,u.f_name AS UserName,uu.vle_id AS VleId,tur.service_code AS SERVICE_CODE,tur.application_no AS VENDOR_REFERENCE,
+                            tur.req_app_count AS APPLICATION_COUNT,tur.created_at AS SERVICE_DATE,tur.rate AS RATE,tur.total_amt AS TOTAL_AMOUNT FROM iti_portal.tb_up_request tur
+                            JOIN (
+                            SELECT MAX(id) AS min_id
+                            FROM iti_portal.tb_up_request
+                            WHERE DATE(created_at) BETWEEN '2025-06-01' AND '2025-06-30'
+                            AND service_code NOT LIKE 'IS'
+                            GROUP BY application_no
+                            ) uniq ON tur.id = uniq.min_id
+                            LEFT JOIN iti_portal.users u ON u.id = tur.users_id
+                            LEFT JOIN iti_portal.users_up uu ON u.id = uu.users_id
+                        """
+        ),
+        "Date_diff_query": text(
+            """ SELECT u.apna_id AS EBO_ID,u.f_name AS USERNAME,uu.vle_id AS VLE_ID,tur.service_code AS SERVICE_CODE,tur.application_no AS VENDOR_REFERENCE,
+                                tur.created_at AS SERVICE_DATE,tur.rate AS RATE,tur.total_amt AS TOTAL_AMOUNT
+                                FROM iti_portal.tb_up_request tur
+                                JOIN (
+                                SELECT 
+                                    MAX(id) AS max_id
+                                FROM iti_portal.tb_up_request
+                                WHERE service_code NOT LIKE 'IS' 
+                                AND application_no IN :app_ids
+                                GROUP BY application_no
+                                ) AS latest ON tur.id = latest.max_id
+                                LEFT JOIN iti_portal.users u ON u.id = tur.users_id
+                                LEFT JOIN iti_portal.users_up uu ON u.id = uu.users_id
+                                WHERE tur.service_code NOT LIKE 'IS'
+                                AND tur.application_no IN :app_ids
+                            """
+        ),
+        "service_func": service_function,
+    },
+    "CHITRAKOOT_IS": {
+        "required_columns": ["REFID"],
+        "main_query": text(
+            """ SELECT u.apna_id AS EBO_ID,u.f_name AS USERNAME,uu.vle_id AS VLE_ID,tur.service_code AS SERVICE_CODE,tur.quota_id AS VENDOR_REFERENCE,
+                            tur.req_app_count AS APPLICATION_COUNT,tur.created_at AS SERVICE_DATE,tur.rate AS RATE,tur.total_amt AS TOTAL_AMOUNT
+                            FROM iti_portal.tb_up_request tur
+                            JOIN (
+                            SELECT 
+                                MAX(id) AS max_id
+                            FROM iti_portal.tb_up_request
+                            WHERE service_code LIKE 'IS'
+                            AND DATE(Created_at) BETWEEN :start_date AND :end_date
+                            GROUP BY quota_id
+                            ) AS latest ON tur.id = latest.max_id
+                            LEFT JOIN iti_portal.users u ON u.id = tur.users_id
+                            LEFT JOIN iti_portal.users_up uu ON u.id = uu.users_id
+                            WHERE tur.service_code LIKE 'IS'
+                            AND DATE(tur.Created_at) BETWEEN :start_date AND :end_date;
+                        """
+        ),
+        "Date_diff_query": text(
+            """ SELECT u.apna_id AS EBO_ID,u.f_name AS USERNAME,uu.vle_id AS VLE_ID,tur.service_code AS SERVICE_CODE,tur.quota_id AS VENDOR_REFERENCE,
+                                tur.req_app_count AS APPLICATION_COUNT,tur.created_at AS SERVICE_DATE,tur.rate AS RATE,tur.total_amt AS TOTAL_AMOUNT
+                                FROM iti_portal.tb_up_request tur
+                                JOIN (
+                                SELECT 
+                                    MAX(id) AS max_id
+                                FROM iti_portal.tb_up_request
+                                WHERE service_code LIKE 'IS'
+                                AND quota_id IN :app_ids
+                                GROUP BY quota_id
+                                ) AS latest ON tur.id = latest.max_id
+                                LEFT JOIN iti_portal.users u ON u.id = tur.users_id
+                                LEFT JOIN iti_portal.users_up uu ON u.id = uu.users_id
+                                WHERE tur.service_code LIKE 'IS'
+                                AND tur.quota_id IN :app_ids
+                            """
+        ),
+        "service_func": service_function,
     },
 }
