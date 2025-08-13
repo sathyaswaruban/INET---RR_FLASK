@@ -145,7 +145,7 @@ def process_status_column(
 
 
 def service_selection(
-    start_date: str, end_date: str, service_name: str, df_excel: pd.DataFrame
+    start_date: str, end_date: str, service_name: str, df_excel: pd.DataFrame,transaction_type: str
 ) -> Any:
     """Handle outward and inward  service selection and processing."""
     logger.info(f"Entering Reconciliation for {service_name} Service")
@@ -171,7 +171,10 @@ def service_selection(
         df_excel = process_status_column(df_excel, service_config)
 
         # Get service data and filter
-        hub_data = service_config["service_func"](start_date, end_date, service_name)
+        if service_name == "AEPS":
+            hub_data = service_config["service_func"](start_date, end_date, service_name,transaction_type)
+        else:
+            hub_data = service_config["service_func"](start_date, end_date, service_name)
         return filtering_Data(hub_data, df_excel, service_name)
 
     except Exception as e:

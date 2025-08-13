@@ -159,7 +159,7 @@ def select_service_handler(
         return up_service_selection(from_date, to_date, service_name, df_excel)
     else:
         logger.info(f"Ihub service: {service_name}")
-        return service_selection(from_date, to_date, service_name, df_excel)
+        return service_selection(from_date, to_date, service_name, df_excel,transaction_type)
 
 
 def main(from_date, to_date, service_name, file, transaction_type=None):

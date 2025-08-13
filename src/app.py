@@ -7,7 +7,7 @@ from handler import handler
 from flask_cors import CORS
 import traceback
 from typing import Dict, Any, Optional
-from components.IhubUsercounts import inet_count
+from components.IhubUsercounts import (inet_count, ebodetailed_data)
 
 app = Flask(__name__)
 app.secret_key = "inet_secret_key"
@@ -123,6 +123,30 @@ def get_ebo_data() -> tuple:
 
     except Exception as e:
         logger.error(f"Error fetching EBO data: {str(e)}\n{traceback.format_exc()}")
+        return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
+    
+
+@app.route("/api/getEbodetailedData", methods=["POST"])
+def get_ebo_detailed_data() -> tuple:
+    try:
+        # if error_response := validate_request(request):
+        #     return jsonify(error_response[0]), error_response[1]
+        
+        request_data = {
+            "from_date": request.form["from_date"],
+            "to_date": request.form["to_date"],
+            "tenant_name": request.form["tenantName"],
+            "ebo_status": request.form.get("status"),
+        }
+        result = ebodetailed_data(**request_data)
+        if isinstance(result, str):
+            return handler("", result, "ebodetailed_data")  
+        else:
+            processed = process_result(result, "ebodetailed_data")
+            print(processed)
+        return processed
+    except Exception as e:
+        logger.error(f"Error fetching detailed EBO data: {str(e)}\n{traceback.format_exc()}")
         return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
 
 
