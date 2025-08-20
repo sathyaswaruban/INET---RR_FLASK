@@ -11,6 +11,7 @@ from tenacity import (
     retry_if_exception_type,
 )
 from sqlalchemy.exc import OperationalError, DatabaseError
+from components.recon_utils import map_status_column, map_tenant_id_column
 
 engine = get_db_connection()
 
@@ -50,11 +51,6 @@ def up_service_selection(
 
     service_config = SERVICE_CONFIGS[service_name]
 
-    # Validate required columns
-    if not all(col in df_excel.columns for col in service_config["required_columns"]):
-        logger.warning(f"Wrong File Uploaded in {service_name} Service")
-        return "Wrong File Uploaded...!"
-
     try:
 
         hub_data = service_config["service_func"](start_date, end_date, service_name)
@@ -90,21 +86,61 @@ def filtering_Data(df_db, df_excel, service_name):
             return df[existing_cols].copy()
 
         # Required columns that to be sent as result to UI
-        required_columns = [
-            "EBO_ID",
-            "USERNAME",
-            "VLE_ID",
-            "REFID",
-            "SERVICE_CODE",
-            "APPLICATION_COUNT",
-            "RATE",
-            "TOTAL_AMOUNT",
-            "JENSEVA_TYPE",
-            "VENDOR_DATE",
-            "SERVICE_DATE",
-            "SUB_DISTRICT",
-            "VILLAGE",
-        ]
+        if service_name == "MANUAL_TB":
+            status_mapping = {
+                0: "unknown",
+                1: "New Request",
+                2: "Yet To Credit",
+                3: "Approved by Accountant",
+                4: "Approved by Accountant Special",
+                5: "Approved by Admin",
+                6: "Approved by Admin Special",
+                7: "Cancel",
+            }
+            df_db["VENDOR_REFERENCE"] = (
+                df_db["VENDOR_REFERENCE"]
+                .str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            df_excel["REFID"] = (
+                df_excel["REFID"].str.strip().str.replace(r"\s+", " ", regex=True)
+            )
+
+            df_db = map_status_column(
+                df_db,
+                "service_status",
+                status_mapping,
+                new_column=f"{service_name}_STATUS",
+                drop_original=True,
+            )
+            df_db = map_tenant_id_column(df_db)
+            required_columns = [
+                "IHUB_USERNAME",
+                "NAME",
+                "BANK_NAME",
+                "REFID",
+                "ACC_NO",
+                "UTR_NO",
+                "AMOUNT",
+                f"{service_name}_STATUS",
+                "SERVICE_DATE",
+            ]
+        else:
+            required_columns = [
+                "EBO_ID",
+                "USERNAME",
+                "VLE_ID",
+                "REFID",
+                "SERVICE_CODE",
+                "APPLICATION_COUNT",
+                "RATE",
+                "TOTAL_AMOUNT",
+                "JENSEVA_TYPE",
+                "VENDOR_DATE",
+                "SERVICE_DATE",
+                "SUB_DISTRICT",
+                "VILLAGE",
+            ]
 
         matched = df_db.merge(
             df_excel, left_on="VENDOR_REFERENCE", right_on="REFID", how="inner"
@@ -210,7 +246,6 @@ def service_function(start_date, end_date, service_name):
 
 SERVICE_CONFIGS = {
     "SULTANPURSCA": {
-        "required_columns": ["REFID"],
         "main_query": text(
             """ SELECT u.UserName AS EBO_ID,ed.Name AS USERNAME,udt.VleId AS VLE_ID,udt.ApplicationId AS VENDOR_REFERENCE,
                             uds.Code AS SERVICE_CODE,udt.Count AS APPLICATION_COUNT,
@@ -265,7 +300,6 @@ SERVICE_CONFIGS = {
         "service_func": service_function,
     },
     "SULTANPUR_IS": {
-        "required_columns": ["REFID"],
         "main_query": text(
             """ SELECT u.UserName AS EBO_ID,ed.Name AS USERNAME,udt.VleId AS VLE_ID,udt.QuotaId AS VENDOR_REFERENCE,
                             uds.Code AS SERVICE_CODE,udt.Count AS APPLICATION_COUNT,udt.Commission AS RATE,udt.Amount AS TOTAL_AMOUNT,
@@ -323,7 +357,6 @@ SERVICE_CONFIGS = {
         "service_func": service_function,
     },
     "CHITRAKOOT_SCA": {
-        "required_columns": ["REFID"],
         "main_query": text(
             """ SELECT u.apna_id AS EBO_ID,u.f_name AS UserName,uu.vle_id AS VleId,tur.service_code AS SERVICE_CODE,tur.application_no AS VENDOR_REFERENCE,
                             tur.req_app_count AS APPLICATION_COUNT,tur.created_at AS SERVICE_DATE,tur.rate AS RATE,tur.total_amt AS TOTAL_AMOUNT FROM iti_portal.tb_up_request tur
@@ -359,7 +392,6 @@ SERVICE_CONFIGS = {
         "service_func": service_function,
     },
     "CHITRAKOOT_IS": {
-        "required_columns": ["REFID"],
         "main_query": text(
             """ SELECT u.apna_id AS EBO_ID,u.f_name AS USERNAME,uu.vle_id AS VLE_ID,tur.service_code AS SERVICE_CODE,tur.quota_id AS VENDOR_REFERENCE,
                             tur.req_app_count AS APPLICATION_COUNT,tur.created_at AS SERVICE_DATE,tur.rate AS RATE,tur.total_amt AS TOTAL_AMOUNT
@@ -395,6 +427,29 @@ SERVICE_CONFIGS = {
                                 WHERE tur.service_code LIKE 'IS'
                                 AND tur.quota_id IN :app_ids
                             """
+        ),
+        "service_func": service_function,
+    },
+    "MANUAL_TB": {
+        "main_query": text(
+            """ SELECT u.UserName IHUB_USERNAME,u.FirstName as NAME,mtb.Name as BANK_NAME,mtt.VerifiedUtrNo as VENDOR_REFERENCE,mtt.AccountNo as ACC_NO,
+                mtt.UtrNo as UTR_NO,mtt.Amount as AMOUNT,mtt.ManualTbStatusType as service_status,mtt.creationTs as SERVICE_DATE
+                FROM ihubcore.ManualTbTransaction mtt 
+                LEFT JOIN ihubcore.ManualTbBank mtb on mtb.id = mtt.manualTbbankId
+                LEFT JOIN tenantinetcsc.EboDetail ed on ed.id = mtt.EboDetailId
+                LEFT JOIN tenantinetcsc.`User` u on u.id = ed.UserId 
+                where DATE(mtt.CreationTs) BETWEEN :start_date AND :end_date
+                """
+        ),
+        "Date_diff_query": text(
+            """ SELECT u.UserName IHUB_USERNAME,u.FirstName as NAME,mtb.Name as BANK_NAME,mtt.VerifiedUtrNo as VENDOR_REFERENCE,mtt.AccountNo as ACC_NO,
+                mtt.UtrNo as UTR_NO,mtt.Amount as AMOUNT,mtt.ManualTbStatusType as service_status,mtt.creationTs as SERVICE_DATE
+                FROM ihubcore.ManualTbTransaction mtt
+                left join ihubcore.ManualTbBank mtb on mtb.id = mtt.manualTbbankId
+                LEFT JOIN tenantinetcsc.EboDetail ed on ed.id = mtt.EboDetailId
+                LEFT JOIN tenantinetcsc.`User` u on u.id = ed.UserId
+                WHERE mtt.VerifiedUtrNo IN :app_ids
+                """
         ),
         "service_func": service_function,
     },

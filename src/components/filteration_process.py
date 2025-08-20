@@ -15,11 +15,9 @@ from components.outwardservices import (
     astro_service,
     insurance_offline_service,
     abhibus_service,
+    moveToBank_service,
 )
-from components.inwardservice import (
-    matm_Service,
-    aeps_Service
-)
+from components.inwardservice import matm_Service, aeps_Service
 
 # -----------------------------------------------------------------------------
 # Service configuration constants
@@ -28,7 +26,6 @@ from components.inwardservice import (
 SERVICE_CONFIGS = {
     "RECHARGE": {"required_columns": ["REFID"], "service_func": recharge_Service},
     "BBPS": {
-        "required_columns": ["REFID"],
         "status_mapping": {
             "Successful": "success",
             "Failure": "failed",
@@ -38,11 +35,9 @@ SERVICE_CONFIGS = {
         "service_func": Bbps_service,
     },
     "PASSPORT": {
-        "required_columns": ["Value Date"],
         "service_func": passport_service,
     },
     "LIC": {
-        "required_columns": ["IMWTID"],
         "processing": lambda df: (
             df[
                 ~(df["REFID"].isna() & df["IMWTID"].isna() & df["OPERATORID"].isna())
@@ -53,7 +48,6 @@ SERVICE_CONFIGS = {
         "service_func": lic_service,
     },
     "PANUTI": {
-        "required_columns": ["Trans No"],
         "status_processing": lambda df: (
             df["VENDOR_STATUS"]
             .astype(str)
@@ -64,7 +58,6 @@ SERVICE_CONFIGS = {
         "service_func": Panuti_service,
     },
     "PANNSDL": {
-        "required_columns": ["REFID"],
         "status_processing": lambda df: (
             df["VENDOR_STATUS"]
             .astype(str)
@@ -75,12 +68,14 @@ SERVICE_CONFIGS = {
         "service_func": Pannsdl_service,
     },
     "ASTRO": {
-        "required_columns": ["REFID"],
-        "status_mapping": {"Processed": "success", "Rolled Back": "intiated" ,"Not Processed": "failed"},
+        "status_mapping": {
+            "Processed": "success",
+            "Rolled Back": "intiated",
+            "Not Processed": "failed",
+        },
         "service_func": astro_service,
     },
     "DMT": {
-        "required_columns": ["REFID"],
         "status_mapping": {
             "Success": "success",
             "Refunded": "failed",
@@ -89,39 +84,36 @@ SERVICE_CONFIGS = {
         "service_func": dmt_Service,
     },
     "INSURANCE_OFFLINE": {
-        "required_columns": ["REFID"],
         "service_func": insurance_offline_service,
     },
     "ABHIBUS": {
-        "required_columns": ["REFID"],
         "service_func": abhibus_service,
     },
-    "AEPS":{
-        "required_columns": ["REFID"],
+    "AEPS": {
         "service_func": aeps_Service,
     },
     "MATM": {
-        "required_columns": ["REFID"],
-        'processing': lambda df: (
-            df[
-                ~(
-                    df["TID"].isna()
-                    & df["REFID"].isna()
-                    & df["DEVICE"].isna()
-                )
-            ].copy()
-            if all(col in df.columns for col in ["TID", "REFID","DEVICE"])
+        "processing": lambda df: (
+            df[~(df["TID"].isna() & df["REFID"].isna() & df["DEVICE"].isna())].copy()
+            if all(col in df.columns for col in ["TID", "REFID", "DEVICE"])
             else df.copy()
         ),
         "status_processing": lambda df: (
             df["VENDOR_STATUS"]
             .astype(str)
             .fillna("failed")
-            .apply(lambda x: "success" if "auth_success" in x.lower() else "failed")                    
+            .apply(lambda x: "success" if "auth_success" in x.lower() else "failed")
             if "VENDOR_STATUS" in df.columns
             else None
         ),
         "service_func": matm_Service,
+    },
+    "MOVETOBANK": {
+        "status_mapping": {
+            "PROCESSED": "success",
+            "REJECTED": "failed",
+        },
+        "service_func": moveToBank_service,
     },
 }
 
@@ -145,7 +137,11 @@ def process_status_column(
 
 
 def service_selection(
-    start_date: str, end_date: str, service_name: str, df_excel: pd.DataFrame,transaction_type: str
+    start_date: str,
+    end_date: str,
+    service_name: str,
+    df_excel: pd.DataFrame,
+    transaction_type: str,
 ) -> Any:
     """Handle outward and inward  service selection and processing."""
     logger.info(f"Entering Reconciliation for {service_name} Service")
@@ -157,11 +153,6 @@ def service_selection(
 
     service_config = SERVICE_CONFIGS[service_name]
 
-    # Validate required columns
-    if not all(col in df_excel.columns for col in service_config["required_columns"]):
-        logger.warning(f"Wrong File Uploaded in {service_name} Service")
-        return "Wrong File Uploaded...!"
-
     try:
         # Apply preprocessing if defined
         if "processing" in service_config:
@@ -172,9 +163,13 @@ def service_selection(
 
         # Get service data and filter
         if service_name == "AEPS":
-            hub_data = service_config["service_func"](start_date, end_date, service_name,transaction_type)
+            hub_data = service_config["service_func"](
+                start_date, end_date, service_name, transaction_type
+            )
         else:
-            hub_data = service_config["service_func"](start_date, end_date, service_name)
+            hub_data = service_config["service_func"](
+                start_date, end_date, service_name
+            )
         return filtering_Data(hub_data, df_excel, service_name)
 
     except Exception as e:
@@ -212,7 +207,9 @@ def unified_filtering_data(
         #     df_db[col] = df_db[col].astype(str).str.strip()
         # for col in ["REFID", "VENDOR_STATUS"]:
         #     df_excel[col] = df_excel[col].astype(str).str.strip()
-        df_excel[status_column_excel] = df_excel[status_column_excel].astype(str).str.strip()
+        df_excel[status_column_excel] = (
+            df_excel[status_column_excel].astype(str).str.strip()
+        )
         # Preprocess dates
         if "VENDOR_DATE" in df_excel.columns:
             df_excel["VENDOR_DATE"] = pd.to_datetime(
@@ -251,10 +248,10 @@ def unified_filtering_data(
         # Handle amount column renaming for not_in_vendor
         refid_list = df_excel["REFID"].dropna().astype(str).str.strip()
         not_in_vendor = df_db[
-        (~df_db["VENDOR_REFERENCE"].astype(str).str.strip().isin(refid_list)) |
-        (df_db["VENDOR_REFERENCE"].isna()) |
-        (df_db["VENDOR_REFERENCE"].astype(str).str.strip() == "")].copy()
-
+            (~df_db["VENDOR_REFERENCE"].astype(str).str.strip().isin(refid_list))
+            | (df_db["VENDOR_REFERENCE"].isna())
+            | (df_db["VENDOR_REFERENCE"].astype(str).str.strip() == "")
+        ].copy()
 
         not_in_vendor["CATEGORY"] = "NOT_IN_VENDOR"
         not_in_vendor = not_in_vendor.rename(columns={"VENDOR_REFERENCE": "REFID"})
@@ -264,7 +261,9 @@ def unified_filtering_data(
             )
         not_in_vendor = safe_column_select(not_in_vendor, required_columns)
         # Handle amount column renaming for not_in_portal
-        not_in_portal = df_excel[~df_excel["REFID"].isin(df_db["VENDOR_REFERENCE"])].copy()
+        not_in_portal = df_excel[
+            ~df_excel["REFID"].isin(df_db["VENDOR_REFERENCE"])
+        ].copy()
         not_in_portal["CATEGORY"] = "NOT_IN_PORTAL"
         if amount_column_map and service_name in amount_column_map:
             not_in_portal = not_in_portal.rename(
@@ -292,6 +291,7 @@ def unified_filtering_data(
             out = df[cond].copy()
             out["CATEGORY"] = category
             return safe_column_select(out, required_columns)
+
         # Define scenario conditions
         scenarios = {
             "not_in_vendor": not_in_vendor,
@@ -328,7 +328,10 @@ def unified_filtering_data(
                     .isin(["failed", "timed out"])
                 )
                 & (matched[status_column_db].astype(str).str.lower() == "failed")
-                & ((matched[ledger_status_col].astype(str).str.lower() == "no") | (matched['TRANSACTION_CREDIT'].astype(str).str.lower() == "no")),
+                & (
+                    (matched[ledger_status_col].astype(str).str.lower() == "no")
+                    | (matched["TRANSACTION_CREDIT"].astype(str).str.lower() == "no")
+                ),
                 "IHUB_FAIL_VEND_FAIL-NIL",
             ),
             "ihub_initiate_vend_succes_not_in_ledger": scenario_df(
@@ -338,7 +341,7 @@ def unified_filtering_data(
                     matched[status_column_db]
                     .astype(str)
                     .str.lower()
-                    .isin(["initiated", "inprogress"])
+                    .isin(["initiated", "inprogress", "pending"])
                 )
                 & (matched[ledger_status_col].astype(str).str.lower() == "no"),
                 "IHUB_INT_VEND_SUC-NIL",
@@ -355,7 +358,7 @@ def unified_filtering_data(
                     matched[status_column_db]
                     .astype(str)
                     .str.lower()
-                    .isin(["initiated", "inprogress"])
+                    .isin(["initiated", "inprogress", "pending"])
                 )
                 & (matched[ledger_status_col].astype(str).str.lower() == "no"),
                 "VEND_FAIL_IHUB_INT-NIL",
@@ -405,7 +408,7 @@ def unified_filtering_data(
                     matched[status_column_db]
                     .astype(str)
                     .str.lower()
-                    .isin(["initiated", "inprogress"])
+                    .isin(["initiated", "inprogress", "pending"])
                 )
                 & (matched[ledger_status_col].astype(str).str.lower() == "yes"),
                 "IHUB_INT_VEND_SUC",
@@ -422,7 +425,7 @@ def unified_filtering_data(
                     matched[status_column_db]
                     .astype(str)
                     .str.lower()
-                    .isin(["initiated", "inprogress"])
+                    .isin(["initiated", "inprogress", "pending"])
                 )
                 & (matched[ledger_status_col].astype(str).str.lower() == "yes"),
                 "VEND_FAIL_IHUB_INT",
@@ -491,8 +494,12 @@ def unified_filtering_data(
                 "combined": combined,
                 "not_in_Portal": scenarios["not_in_portal"],
                 "VEND_IHUB_SUC-NIL": scenarios["vend_ihub_succ_not_in_ledger"],
-                "VEND_FAIL_IHUB_SUC-NIL": scenarios["vend_fail_ihub_succ_not_in_ledger"],
-                "VEND_SUC_IHUB_FAIL-NIL": scenarios["vend_succ_ihub_fail_not_in_ledger"],
+                "VEND_FAIL_IHUB_SUC-NIL": scenarios[
+                    "vend_fail_ihub_succ_not_in_ledger"
+                ],
+                "VEND_SUC_IHUB_FAIL-NIL": scenarios[
+                    "vend_succ_ihub_fail_not_in_ledger"
+                ],
                 "IHUB_VEND_FAIL-NIL": scenarios["ihub_vend_fail_not_in_ledger"],
                 "IHUB_INT_VEND_SUC-NIL": scenarios[
                     "ihub_initiate_vend_succes_not_in_ledger"
@@ -513,7 +520,7 @@ def unified_filtering_data(
             }
         return mapping
     except Exception as e:
-            logger.error(f"Error in unified_filtering_data: {str(e)}")  
+        logger.error(f"Error in unified_filtering_data: {str(e)}")
 
 
 # DRY Helper Functions are now shared in recon_utils.py
@@ -527,7 +534,7 @@ def unified_filtering_data(
 def filtering_Data(df_db, df_excel, service_name):
 
     # Use the unified filtering function with parameters matching the old logic
-    if service_name == 'PASSPORT':
+    if service_name == "PASSPORT":
         required_columns = [
             "CATEGORY",
             "VENDOR_DATE",

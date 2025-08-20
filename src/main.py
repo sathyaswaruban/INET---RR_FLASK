@@ -13,6 +13,7 @@ SERVICE_CONFIGS = {
             "Transaction Ref ID": "REFID",
             "NPCI Transaction Desc": "VENDOR_STATUS",
         },
+        "required_columns": ["Transaction Ref ID"],
         "date_format": "%d-%b-%Y %H:%M:%S",
     },
     "PASSPORT": {
@@ -21,43 +22,52 @@ SERVICE_CONFIGS = {
             "Txn Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
             "Debit": "AMOUNT",
-        }
+        },
+        "required_columns": ["Ref No"],
     },
     "AEPS": {
         "columns": {
             "SERIALNUMBER": "REFID",
             "DATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
-        }
+        },
+        "required_columns": ["SERIALNUMBER"],
     },
-    "RECHARGE": {"columns": {"DATE": "VENDOR_DATE", "STATUS": "VENDOR_STATUS"}},
+    "RECHARGE": {
+        "columns": {"DATE": "VENDOR_DATE", "STATUS": "VENDOR_STATUS"},
+        "required_columns": ["REFID"],
+    },
     "PANUTI": {
         "columns": {
             "Refrence No": "REFID",
             "trans Date": "VENDOR_DATE",
             "Payment Status": "VENDOR_STATUS",
-        }
+        },
+        "required_columns": ["Refrence No"],
     },
     "PANNSDL": {
         "columns": {
             "Acknowledgment Number": "REFID",
             "Date": "VENDOR_DATE",
             "Status Of Application": "VENDOR_STATUS",
-        }
+        },
+        "required_columns": ["Acknowledgment Number"],
     },
     "MATM": {
         "columns": {
             "Date": "VENDOR_DATE",
             "TRANSACTIONSTATUS": "VENDOR_STATUS",
             "RRN": "REFID",
-        }
+        },
+        "required_columns": ["RRN"],
     },
     "LIC": {
         "columns": {
             "ORDERID": "REFID",
             "Date": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
-        }
+        },
+        "required_columns": ["ORDERID"],
     },
     "ASTRO": {
         "columns": {
@@ -65,7 +75,8 @@ SERVICE_CONFIGS = {
             "Date": "VENDOR_DATE",
             "Transaction Status": "VENDOR_STATUS",
             "Price": "AMOUNT",
-        }
+        },
+        "required_columns": ["Order ID"],
     },
     "UPIQR": {
         "columns": {
@@ -74,19 +85,22 @@ SERVICE_CONFIGS = {
             "STATUS": "VENDOR_STATUS",
         },
         "day_first": True,
+        "required_columns": ["Unique_ID"],
     },
     "DMT": {
         "columns": {
             "DATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
-        }
+        },
+        "required_columns": ["REFID"],
     },
     "INSURANCE_OFFLINE": {
         "columns": {
             "Issued Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
             "Policy No": "REFID",
-        }
+        },
+        "required_columns": ["Policy No"],
     },
     "ABHIBUS": {
         "columns": {
@@ -94,6 +108,7 @@ SERVICE_CONFIGS = {
             "Booked Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
         },
+        "required_columns": ["Tkt. Number"],
     },
     "SULTANPURSCA": {
         "columns": {
@@ -102,6 +117,7 @@ SERVICE_CONFIGS = {
         },
         "date_format": "%d/%m/%Y",
         "day_first": True,
+        "required_columns": ["Application ID"],
     },
     "CHITRAKOOT_SCA": {
         "columns": {
@@ -110,12 +126,14 @@ SERVICE_CONFIGS = {
         },
         "date_format": "%d/%m/%Y",
         "day_first": True,
+        "required_columns": ["Application ID"],
     },
     "SULTANPUR_IS": {
         "columns": {
             "Quota ID": "REFID",
             "Transaction Date": "VENDOR_DATE",
         },
+        "required_columns": ["Quota ID"],
         # "date_format": "%d-%m-%Y %H:%M:%S",
     },
     "CHITRAKOOT_IS": {
@@ -123,10 +141,29 @@ SERVICE_CONFIGS = {
             "Quota ID": "REFID",
             "Transaction Date": "VENDOR_DATE",
         },
+        "required_columns": ["Quota ID"],
+    },
+    "MOVETOBANK": {
+        "columns": {
+            "Corporate Ref No": "REFID",
+            "Transaction Status": "VENDOR_STATUS",
+            "Creation Date": "VENDOR_DATE",
+        },
+        "required_columns": ["Corporate Ref No"],
+        # "date_format": "%d-%m-%Y %H:%M:%S",
+    },
+    "MANUAL_TB": {
+        "columns": {
+            "Description": "REFID",
+            "Status": "VENDOR_STATUS",
+            "Txn / Value Date": "VENDOR_DATE",
+        },
+        "required_columns": ["Description"],
+        # "date_format": "%d-%m-%Y %H:%M:%S",
     },
 }
 
-UPPS_SERVICES = {"SULTANPURSCA", "SULTANPUR_IS", "CHITRAKOOT_IS", "CHITRAKOOT_SCA"}
+UPPS_SERVICES = {"SULTANPURSCA", "SULTANPUR_IS", "CHITRAKOOT_IS", "CHITRAKOOT_SCA","MANUAL_TB"}
 
 
 def process_date_columns(df, service_name, service_config):
@@ -159,7 +196,9 @@ def select_service_handler(
         return up_service_selection(from_date, to_date, service_name, df_excel)
     else:
         logger.info(f"Ihub service: {service_name}")
-        return service_selection(from_date, to_date, service_name, df_excel,transaction_type)
+        return service_selection(
+            from_date, to_date, service_name, df_excel, transaction_type
+        )
 
 
 def main(from_date, to_date, service_name, file, transaction_type=None):
@@ -175,6 +214,9 @@ def main(from_date, to_date, service_name, file, transaction_type=None):
         # Read and process the Excel file
         df_excel = pd.read_excel(file, dtype=str)
         service_config = SERVICE_CONFIGS[service_name]
+        if not all(col in df_excel.columns for col in service_config["required_columns"]):
+            logger.warning(f"Wrong File Uploaded in {service_name} Service")
+            return "Wrong File Uploaded...!"
 
         # Rename columns based on service configuration
         df_excel = df_excel.rename(columns=service_config["columns"])
