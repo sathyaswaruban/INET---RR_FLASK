@@ -270,7 +270,7 @@ def unified_filtering_data(
                 columns={amount_column_map[service_name]: "AMOUNT"}
             )
         not_in_portal = safe_column_select(not_in_portal, required_columns)
-
+        # print(not_in_portal["COMMISSION_AMOUNT"])
         # Matched
         matched = df_db.merge(
             df_excel, left_on="VENDOR_REFERENCE", right_on="REFID", how="inner"

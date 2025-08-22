@@ -8,16 +8,18 @@ from flask_cors import CORS
 import traceback
 from typing import Dict, Any, Optional
 from components.IhubUsercounts import (inet_count, ebodetailed_data)
+import numpy as np
+
 
 app = Flask(__name__)
 app.secret_key = "inet_secret_key"
 
 
 # Configure CORS
-# CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
-CORS(
-    app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
-)
+CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+# CORS(
+#     app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
+# )
 
 
 # Constants
@@ -52,7 +54,7 @@ def process_result(result: Any, service_name: str) -> Dict[str, Any]:
     for key, value in result.items():
         if isinstance(value, pd.DataFrame):
             # Handle DataFrame conversion
-            value = value.replace({pd.NA: None})
+            value = value.replace({pd.NA: None, np.nan: None})
             for col in value.select_dtypes(include=["datetime64[ns]"]).columns:
                 value[col] = value[col].astype(object).where(value[col].notna(), None)
             processed_result[key] = value.to_dict(orient="records")
@@ -150,5 +152,5 @@ def get_ebo_detailed_data() -> tuple:
         return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
 
 
-# if __name__ == "__main__":
-#     app.run(debug=True, host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)
