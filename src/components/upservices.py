@@ -147,6 +147,7 @@ def filtering_Data(df_db, df_excel, service_name):
         ).copy()
         matched["CATEGORY"] = "MATCHED"
         matched = safe_column_select(matched, required_columns)
+        # print(matched.head(5))
         # 1 Filtering Data initiated in IHUB portal and not in Vendor Xl
         not_in_vendor = df_db[~df_db["VENDOR_REFERENCE"].isin(df_excel["REFID"])].copy()
         not_in_vendor["CATEGORY"] = "NOT_IN_VENDOR"
@@ -269,7 +270,8 @@ SERVICE_CONFIGS = {
                             LEFT JOIN tenantinetcsc.EboDetail ed ON ed.id = udt.EboDetailId 
                             LEFT JOIN tenantinetcsc.`User` u ON ed.UserId = u.id
                             LEFT JOIN tenantinetcsc.UpeDistrictService uds ON uds.id = udt.UpeDistrictServiceId
-                            LEFT JOIN tenantinetcsc.SubDistrict sd ON sd.id = ed.SubDistrictId;
+                            LEFT JOIN tenantinetcsc.SubDistrict sd ON sd.id = ed.SubDistrictId
+                            ORDER BY SERVICE_DATE ASC;
                         """
         ),
         "Date_diff_query": text(
@@ -358,17 +360,18 @@ SERVICE_CONFIGS = {
     },
     "CHITRAKOOT_SCA": {
         "main_query": text(
-            """ SELECT u.apna_id AS EBO_ID,u.f_name AS UserName,uu.vle_id AS VleId,tur.service_code AS SERVICE_CODE,tur.application_no AS VENDOR_REFERENCE,
+            """ SELECT u.apna_id AS EBO_ID,u.f_name AS USERNAME,uu.vle_id AS VLE_ID,tur.service_code AS SERVICE_CODE,tur.application_no AS VENDOR_REFERENCE,
                             tur.req_app_count AS APPLICATION_COUNT,tur.created_at AS SERVICE_DATE,tur.rate AS RATE,tur.total_amt AS TOTAL_AMOUNT FROM iti_portal.tb_up_request tur
                             JOIN (
                             SELECT MAX(id) AS min_id
                             FROM iti_portal.tb_up_request
-                            WHERE DATE(created_at) BETWEEN '2025-06-01' AND '2025-06-30'
+                            WHERE DATE(created_at) BETWEEN :start_date AND :end_date
                             AND service_code NOT LIKE 'IS'
                             GROUP BY application_no
                             ) uniq ON tur.id = uniq.min_id
                             LEFT JOIN iti_portal.users u ON u.id = tur.users_id
                             LEFT JOIN iti_portal.users_up uu ON u.id = uu.users_id
+                            order by SERVICE_DATE ASC 
                         """
         ),
         "Date_diff_query": text(

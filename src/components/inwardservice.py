@@ -37,7 +37,7 @@ def execute_sql_with_retry(query, params=None):
             return df
         except Exception as e:
             logger.error(f"Error during SQL execution: {e}")
-            raise  
+            raise
 
 # Ebo Wallet Amount and commission  Debit credit check function  -------------------------------------------
 def get_ebo_wallet_data(start_date, end_date):
@@ -87,9 +87,9 @@ def get_ebo_wallet_data(start_date, end_date):
 def aeps_Service(start_date, end_date, service_name, transaction_type):
     logger.info(f"Fetching data from HUB for {service_name}")
     result = pd.DataFrame()
-
-    query = text(
-        """
+    if transaction_type == "2":
+        query = text(
+            """
         SELECT 
             mt2.TransactionRefNum AS IHUB_REFERENCE,
             par.ReferenceNo  AS VENDOR_REFERENCE,
@@ -117,13 +117,54 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
         LEFT JOIN (
             SELECT DISTINCT iwt.IHubReferenceId AS IHubReferenceId
             FROM ihubcore.IHubWalletTransaction iwt
-            WHERE DATE(iwt.CreationTs) BETWEEN :start_date AND CURRENT_DATE()
+            WHERE DATE(iwt.CreationTs) BETWEEN :start_date AND :end_date
         ) a 
             ON a.IHubReferenceId = mt2.TransactionRefNum
         WHERE pat.TransMode = :transaction_type
         AND DATE(pat.CreationTs) BETWEEN :start_date AND :end_date
     """
-    )
+        )
+    elif transaction_type == "3":
+        query = text(
+            """
+        SELECT 
+            mt2.TransactionRefNum AS IHUB_REFERENCE,
+            par.ReferenceNo  AS VENDOR_REFERENCE,
+            mt2.TenantDetailId as TENANT_ID,
+            u.UserName as IHUB_USERNAME,
+            mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
+            mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+            pat.CreationTs AS SERVICE_DATE,
+            pat.TransStatus AS service_status,
+            pat.Amount AS AEPS_AMOUNT,
+            CASE
+                WHEN a.IHubReferenceId IS NOT NULL THEN 'Yes'
+                ELSE 'No'
+            END AS IHUB_LEDGER_STATUS
+        FROM ihubcore.MasterTransaction mt2 
+        LEFT JOIN ihubcore.MasterSubTransaction mst
+            ON mst.MasterTransactionId = mt2.Id
+        LEFT JOIN ihubcore.PsAepsTransaction pat
+            ON pat.MasterSubTransactionId = mst.Id
+            JOIN ihubcore.PsAepsRequest par on par.id=pat.RequestId
+        LEFT JOIN tenantinetcsc.EboDetail ed
+            ON mt2.EboDetailId = ed.Id
+        LEFT JOIN tenantinetcsc.`User` u
+            ON u.id = ed.UserId
+        LEFT JOIN (
+            SELECT DISTINCT iwt.IHubReferenceId AS IHubReferenceId  
+            FROM ihubcore.IHubWalletTransaction iwt
+            WHERE DATE(iwt.CreationTs) BETWEEN :start_date AND :end_date
+        ) a
+            ON a.IHubReferenceId = mt2.TransactionRefNum
+        WHERE pat.TransMode = :transaction_type and
+        DATE(pat.CreationTs) BETWEEN :start_date AND :end_date
+    """
+        )
+    else:
+        message = f"Invalid transaction_type '{transaction_type}' for service '{service_name}'"
+        logger.error(message)
+        return message
 
     params = {
         "start_date": start_date,
@@ -262,4 +303,4 @@ def matm_Service(start_date, end_date, service_name):
 
 
 # ----------------------------------------------------------------------------------
-#
+

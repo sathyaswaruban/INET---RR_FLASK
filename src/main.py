@@ -3,8 +3,7 @@ import pandas as pd
 from logger_config import logger
 from components.upiQrfiltering import upiQr_service_selection
 from components.upservices import up_service_selection
-import re
-
+from components.iti_imps import imps_service_function
 # Define service configurations as constants
 SERVICE_CONFIGS = {
     "BBPS": {
@@ -29,6 +28,11 @@ SERVICE_CONFIGS = {
         "columns": {
             "SERIALNUMBER": "REFID",
             "DATE": "VENDOR_DATE",
+            "STATUS": "VENDOR_STATUS",
+        },
+        "columnsmini": {
+            "SERIALNUMBER": "REFID",
+            "ADDEDDATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
         },
         "required_columns": ["SERIALNUMBER"],
@@ -159,11 +163,27 @@ SERVICE_CONFIGS = {
             "Txn / Value Date": "VENDOR_DATE",
         },
         "required_columns": ["Description"],
+        # "date_format": "%d-%m-%Y %H:%M:%S", service function in upservice module
+    },
+    "IMPS": {
+        "columns": {
+            "UTR Number": "REFID",
+            "Status": "VENDOR_STATUS",
+            "Transaction Date": "VENDOR_DATE",
+            "Amount": "VENDOR_AMOUNT",
+        },
+        "required_columns": ["UTR Number"],
         # "date_format": "%d-%m-%Y %H:%M:%S",
     },
 }
 
-UPPS_SERVICES = {"SULTANPURSCA", "SULTANPUR_IS", "CHITRAKOOT_IS", "CHITRAKOOT_SCA","MANUAL_TB"}
+UPPS_SERVICES = {
+    "SULTANPURSCA",
+    "SULTANPUR_IS",
+    "CHITRAKOOT_IS",
+    "CHITRAKOOT_SCA",
+    "MANUAL_TB",
+}
 
 
 def process_date_columns(df, service_name, service_config):
@@ -194,6 +214,9 @@ def select_service_handler(
     elif service_name in UPPS_SERVICES:
         logger.info(f"Upps_service: {service_name}")
         return up_service_selection(from_date, to_date, service_name, df_excel)
+    elif service_name == "IMPS":
+        logger.info(f"Ihub service: {service_name}")
+        return imps_service_function(from_date, to_date, service_name,df_excel)
     else:
         logger.info(f"Ihub service: {service_name}")
         return service_selection(
@@ -214,19 +237,24 @@ def main(from_date, to_date, service_name, file, transaction_type=None):
         # Read and process the Excel file
         df_excel = pd.read_excel(file, dtype=str)
         service_config = SERVICE_CONFIGS[service_name]
-        if not all(col in df_excel.columns for col in service_config["required_columns"]):
+        if not all(
+            col in df_excel.columns for col in service_config["required_columns"]
+        ):
             logger.warning(f"Wrong File Uploaded in {service_name} Service")
             return "Wrong File Uploaded...!"
 
-        # Rename columns based on service configuration
-        df_excel = df_excel.rename(columns=service_config["columns"])
+        if transaction_type == "3":
+            df_excel = df_excel.rename(columns=service_config["columnsmini"])
+        else:
+            # Rename columns based on service configuration
+            df_excel = df_excel.rename(columns=service_config["columns"])
 
         if service_name in ["INSURANCE_OFFLINE", "SULTANPUR_IS", "CHITRAKOOT_IS"]:
             if service_name == "INSURANCE_OFFLINE":
                 df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(0, 20)
             else:
                 df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(1, 11)
-        # print(repr(df_excel["VENDOR_DATE"].iloc[0]))
+        # print(df_excel["REFID"].head(5))
         # Process date columns
         df_excel = process_date_columns(df_excel, service_name, service_config)
 

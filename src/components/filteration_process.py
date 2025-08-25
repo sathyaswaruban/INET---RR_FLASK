@@ -219,14 +219,13 @@ def unified_filtering_data(
             df_db["SERVICE_DATE"] = pd.to_datetime(
                 df_db["SERVICE_DATE"], errors="coerce"
             ).dt.strftime("%Y-%m-%d")
-
         # Map DB status if mapping provided
         if status_mapping_db and status_column_db in df_db.columns:
-            df_db[status_column_db] = (
+                df_db[status_column_db] = (
                 df_db[status_column_db]
                 .map(status_mapping_db)
                 .fillna(df_db[status_column_db])
-            )
+                )
 
         # Map Excel status if mapping provided
         if status_mapping_excel and status_column_excel in df_excel.columns:
