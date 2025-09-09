@@ -39,6 +39,7 @@ def execute_sql_with_retry(query, params=None):
             logger.error(f"Error during SQL execution: {e}")
             raise
 
+
 # Ebo Wallet Amount and commission  Debit credit check function  -------------------------------------------
 def get_ebo_wallet_data(start_date, end_date):
     logger.info("Fetching Data from EBO Wallet Transaction")
@@ -94,7 +95,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
             mt2.TransactionRefNum AS IHUB_REFERENCE,
             par.ReferenceNo  AS VENDOR_REFERENCE,
             mt2.TenantDetailId as TENANT_ID,
-            u.UserName as IHUB_USERNAME,
+            mt2.CreationUserId as IHUB_USERNAME,
             mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             pat.CreationTs AS SERVICE_DATE,
@@ -110,10 +111,6 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
         LEFT JOIN ihubcore.PsAepsTransaction pat 
             ON pat.MasterSubTransactionId = mst.Id
             JOIN ihubcore.PsAepsRequest par on par.id=pat.RequestId 
-        LEFT JOIN tenantinetcsc.EboDetail ed
-            ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u
-            ON u.id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT iwt.IHubReferenceId AS IHubReferenceId
             FROM ihubcore.IHubWalletTransaction iwt
@@ -131,7 +128,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
             mt2.TransactionRefNum AS IHUB_REFERENCE,
             par.ReferenceNo  AS VENDOR_REFERENCE,
             mt2.TenantDetailId as TENANT_ID,
-            u.UserName as IHUB_USERNAME,
+            mt2.CreationUserId as IHUB_USERNAME,
             mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             pat.CreationTs AS SERVICE_DATE,
@@ -147,10 +144,6 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
         LEFT JOIN ihubcore.PsAepsTransaction pat
             ON pat.MasterSubTransactionId = mst.Id
             JOIN ihubcore.PsAepsRequest par on par.id=pat.RequestId
-        LEFT JOIN tenantinetcsc.EboDetail ed
-            ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u
-            ON u.id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT iwt.IHubReferenceId AS IHubReferenceId  
             FROM ihubcore.IHubWalletTransaction iwt
@@ -224,7 +217,7 @@ def matm_Service(start_date, end_date, service_name):
             mt2.TransactionRefNum AS IHUB_REFERENCE,
             iwmt.Rrn AS VENDOR_REFERENCE,
             mt2.TenantDetailId as TENANT_ID,
-            u.UserName as IHUB_USERNAME,
+            mt2.CreationUserId as IHUB_USERNAME,
             mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             iwmt.CreationTs AS SERVICE_DATE,
@@ -243,10 +236,6 @@ def matm_Service(start_date, end_date, service_name):
             ON mst.MasterTransactionId = mt2.Id
         LEFT JOIN ihubcore.ImWalletMatmTransaction iwmt  
             ON iwmt.MasterSubTransactionId = mst.Id
-        LEFT JOIN tenantinetcsc.EboDetail ed
-            ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u
-            ON u.id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT iwt.IHubReferenceId AS IHubReferenceId
             FROM ihubcore.IHubWalletTransaction iwt
@@ -303,4 +292,3 @@ def matm_Service(start_date, end_date, service_name):
 
 
 # ----------------------------------------------------------------------------------
-

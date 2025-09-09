@@ -20,7 +20,7 @@ SERVICE_CONFIGS = {
             "Ref No": "REFID",
             "Txn Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
-            "Debit": "AMOUNT",
+            "        Debit": "AMOUNT",
         },
         "required_columns": ["Ref No"],
     },

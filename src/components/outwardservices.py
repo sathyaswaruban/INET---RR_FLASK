@@ -86,15 +86,15 @@ def get_ebo_wallet_data(start_date, end_date):
         ewt.MasterTransactionsId,
         MAX(
             CASE 
-                WHEN ewt.Description IN ('Transaction - Credit', 'Transaction - Credit due to failure', 'Transaction - Refund') 
+                WHEN ewt.Description IN ('Transaction - Credit', 'Transaction - Credit due to failure', 'Transaction - Refund','Manual Refund Credit - Transaction - Credit') 
                 OR LOWER(ewt.Description) LIKE "%refund credit%" 
                 THEN 'Yes' 
                 ELSE 'No' 
             END
         ) AS TRANSACTION_CREDIT,
-        MAX(CASE WHEN ewt.Description = 'Transaction - Debit' THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
-        MAX(CASE WHEN ewt.Description = 'Commission Added' THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
-        MAX(CASE WHEN ewt.Description IN ('Commission - Reversal','Commission Reversal') THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
+        MAX(CASE WHEN ewt.Description IN ('Transaction - Debit','Manual Refund Debit - Transaction - Debit') THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
+        MAX(CASE WHEN ewt.Description IN ('Commission Added','Manual Refund Credit - Commission - Added') THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
+        MAX(CASE WHEN ewt.Description IN ('Commission - Reversal','Commission Reversal','Manual Refund Debit - Commission - Reversal') THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
         FROM
         ihubcore.MasterTransaction mt2
         JOIN  
@@ -132,7 +132,7 @@ def recharge_Service(start_date, end_date, service_name):
         SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
                mt2.TenantDetailId as TENANT_ID,   
                sn.requestID AS VENDOR_REFERENCE,
-               u.UserName as IHUB_USERNAME, 
+               mt2.CreationUserId as IHUB_USERNAME,
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                sn.CreationTs AS SERVICE_DATE, 
@@ -149,8 +149,6 @@ def recharge_Service(start_date, end_date, service_name):
         FROM ihubcore.MasterTransaction mt2
         LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
         LEFT JOIN ihubcore.PsRechargeTransaction sn ON sn.MasterSubTransactionId = mst.Id
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -204,7 +202,7 @@ def Bbps_service(start_date, end_date, service_name):
         f"""
     SELECT
         mt2.TransactionRefNum as IHUB_REFERENCE,
-        u.Username as IHUB_USERNAME,
+        mt2.CreationUserId as IHUB_USERNAME,
         bbp.TxnRefId as VENDOR_REFERENCE,
         bbp.Amount as AMOUNT,
         bbp.creationTs as SERVICE_DATE,
@@ -216,8 +214,6 @@ def Bbps_service(start_date, end_date, service_name):
     FROM ihubcore.MasterTransaction mt2
     LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
     LEFT JOIN ihubcore.BBPS_BillPay bbp ON bbp.MasterSubTransactionId = mst.Id
-    LEFT JOIN tenantinetcsc.EboDetail ed ON ed.Id = mt2.EboDetailId
-    LEFT JOIN tenantinetcsc.User u ON u.id = ed.UserId
     WHERE DATE(bbp.CreationTs) BETWEEN :start_date AND :end_date
     """
     )
@@ -310,7 +306,7 @@ def Panuti_service(start_date, end_date, service_name):
                mt2.TransactionRefNum AS IHUB_REFERENCE,
                mt2.TenantDetailId as TENANT_ID,   
                u2.ApplicationNumber  AS VENDOR_REFERENCE,
-               u.UserName as IHUB_USERNAME, 
+               mt2.CreationUserId as IHUB_USERNAME,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                u2.CreationTs  AS SERVICE_DATE, 
@@ -327,8 +323,6 @@ def Panuti_service(start_date, end_date, service_name):
         FROM ihubcore.UTIITSLTTransaction u2  
         LEFT JOIN ihubcore.MasterSubTransaction mst ON u2.MasterSubTransactionId = mst.Id 
         LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -376,7 +370,7 @@ def dmt_Service(start_date, end_date, service_name):
         f"""
             SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
             pst.VendorReferenceId as VENDOR_REFERENCE,
-            u.UserName as IHUB_USERNAME,
+            mt2.CreationUserId as IHUB_USERNAME,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
             pst.PaySprintTransStatus as service_status,
@@ -394,10 +388,6 @@ def dmt_Service(start_date, end_date, service_name):
             ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
             LEFT JOIN
             ihubcore.PaySprint_Transaction pst ON pst.MasterSubTransactionId = mst.Id
-            LEFT JOIN
-            tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
-            LEFT JOIN
-            tenantinetcsc.`User` u ON u.id = ed.UserId
             LEFT JOIN
             (SELECT DISTINCT iwt.IHubReferenceId AS IHubReferenceId
             FROM ihubcore.IHubWalletTransaction iwt
@@ -455,7 +445,7 @@ def Pannsdl_service(start_date, end_date, service_name):
        SELECT  mt2.TransactionRefNum AS IHUB_REFERENCE,
                mt2.TenantDetailId as TENANT_ID,   
                pit.AcknowledgeNo  AS VENDOR_REFERENCE,
-               u.UserName as IHUB_USERNAME, 
+               mt2.CreationUserId as IHUB_USERNAME,
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                DATE(pit.CreationTs)  AS SERVICE_DATE, 
@@ -472,8 +462,6 @@ def Pannsdl_service(start_date, end_date, service_name):
         FROM ihubcore.PanInTransaction pit  
         LEFT JOIN ihubcore.MasterSubTransaction mst ON pit.MasterSubTransactionId = mst.Id 
         LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -531,7 +519,7 @@ def passport_service(start_date, end_date, service_name):
         SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
                mt2.TenantDetailId as TENANT_ID,   
                pi.BankReferenceNumber  AS VENDOR_REFERENCE,
-               u.UserName as IHUB_USERNAME, 
+               mt2.CreationUserId as IHUB_USERNAME,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                pi.BankReferenceTs AS SERVICE_DATE, 
@@ -548,8 +536,6 @@ def passport_service(start_date, end_date, service_name):
         FROM ihubcore.PassportIn pi 
         LEFT JOIN ihubcore.MasterSubTransaction mst ON pi.MasterSubTransactionId = mst.Id 
         LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -588,9 +574,9 @@ def passport_service(start_date, end_date, service_name):
         df_db = map_tenant_id_column(df_db)
         result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
     except SQLAlchemyError as e:
-        logger.error(f"Database error in recharge_Service(): {e}")
+        logger.error(f"Database error in Passport_service(): {e}")
     except Exception as e:
-        logger.error(f"Unexpected error in recharge_Service(): {e}")
+        logger.error(f"Unexpected error in Passport_service(): {e}")
     return result
 
 
@@ -604,7 +590,7 @@ def lic_service(start_date, end_date, service_name):
         SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
                mt2.TenantDetailId as TENANT_ID,   
                lpt.OrderId AS VENDOR_REFERENCE,
-               u.UserName as IHUB_USERNAME,
+               mt2.CreationUserId as IHUB_USERNAME,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT, 
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                lpt.CreationTs AS SERVICE_DATE,
@@ -622,8 +608,6 @@ def lic_service(start_date, end_date, service_name):
         LEFT JOIN ihubcore.MasterSubTransaction mst ON lpt.MasterSubTransactionId = mst.Id
         LEFT JOIN ihubcore.MasterTransaction mt2 ON mst.MasterTransactionId = mt2.Id
         LEFT JOIN ihubcore.LicPremiumBillFetch lpf ON lpf.id = lpt.BillFetchId  
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -673,7 +657,7 @@ def lic_service(start_date, end_date, service_name):
 
 
 # ----------------------------------------------------------------------
-# AStro service Function
+# Astro service Function
 def astro_service(start_date, end_date, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
     result = pd.DataFrame()
@@ -682,7 +666,7 @@ def astro_service(start_date, end_date, service_name):
         SELECT mt2.TransactionRefNum AS IHUB_REFERENCE,
                mt2.TenantDetailId as TENANT_ID,   
                at2.OrderId AS VENDOR_REFERENCE,
-               u.UserName as IHUB_USERNAME,
+               mt2.CreationUserId as IHUB_USERNAME,
                 mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT, 
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                at2.CreationTs AS SERVICE_DATE, 
@@ -698,8 +682,6 @@ def astro_service(start_date, end_date, service_name):
         FROM ihubcore.MasterTransaction mt2
         LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
         LEFT JOIN ihubcore.AstroTransaction at2 ON at2.MasterSubTransactionId = mst.Id
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt2.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -754,7 +736,7 @@ def insurance_offline_service(start_date, end_date, service_name):
         SELECT 
         mt.TransactionRefNum AS IHUB_REFERENCE,
         niit.PolicyNumber  AS VENDOR_REFERENCE,
-        u.UserName as IHUB_USERNAME,
+        mt.CreationUserId as IHUB_USERNAME,
         mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
         mt.TransactionStatus AS IHUB_MASTER_STATUS,
         mt.TenantDetailId as TENANT_ID,   
@@ -775,10 +757,6 @@ def insurance_offline_service(start_date, end_date, service_name):
             ON  mst.MasterTransactionId =  mt.id 
         LEFT JOIN  ihubcore.NewIndiaInsuranceTransaction niit  
             ON mst.Id = niit.MasterSubTransactionId 
-        LEFT JOIN tenantinetcsc.EboDetail ed
-            ON mt.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u
-            ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -834,7 +812,7 @@ def abhibus_service(start_date, end_date, service_name):
         SELECT 
             mt.TransactionRefNum AS IHUB_REFERENCE,
             abt.PnrNumber AS VENDOR_REFERENCE,
-            u.UserName AS IHUB_USERNAME,
+            mt.CreationUserId as IHUB_USERNAME,
             mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,    
             mt.TransactionStatus AS IHUB_MASTER_STATUS,
             mt.TenantDetailId AS TENANT_ID,
@@ -853,8 +831,6 @@ def abhibus_service(start_date, end_date, service_name):
             ihubcore.MasterTransaction mt
         LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt.id
         LEFT JOIN ihubcore.AbhiBus_TicketDetail abt ON mst.Id = abt.MasterSubTransactionId
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -905,7 +881,7 @@ def moveToBank_service(start_date, end_date, service_name):
     query = text(
         """
         SELECT mt.TransactionRefNum AS IHUB_REFERENCE,
-               u.UserName AS IHUB_USERNAME,
+               mt.CreationUserId as IHUB_USERNAME,
                mt.TenantDetailId AS TENANT_ID,
                mt.TransactionStatus AS IHUB_MASTER_STATUS,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
@@ -922,8 +898,6 @@ def moveToBank_service(start_date, end_date, service_name):
         FROM ihubcore.MasterTransaction mt
         LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt.id
         left join ihubcore.AxisMtbTransaction amt on amt.MasterSubTransactionId = mst.Id 
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -948,7 +922,7 @@ def moveToBank_service(start_date, end_date, service_name):
             1: "pending",
             2: "failed",
             3: "success",
-            4:"failed and refunded",
+            4: "failed and refunded",
         }
         df_db = map_status_column(
             df_db,
@@ -968,13 +942,14 @@ def moveToBank_service(start_date, end_date, service_name):
 
 # ------------------------------------------------------------------------
 
+
 def manualTB_sevice(start_date, end_date, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
     result = pd.DataFrame()
     query = text(
         """
         SELECT mt.TransactionRefNum AS IHUB_REFERENCE,
-               u.UserName AS IHUB_USERNAME,
+               mt.CreationUserId as IHUB_USERNAME,
                mt.TenantDetailId AS TENANT_ID,
                mt.TransactionStatus AS IHUB_MASTER_STATUS,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
@@ -991,8 +966,6 @@ def manualTB_sevice(start_date, end_date, service_name):
         FROM ihubcore.MasterTransaction mt
         LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt.id
         left join ihubcore.AxisMtbTransaction amt on amt.MasterSubTransactionId = mst.Id 
-        LEFT JOIN tenantinetcsc.EboDetail ed ON mt.EboDetailId = ed.Id
-        LEFT JOIN tenantinetcsc.`User` u ON u.Id = ed.UserId
         LEFT JOIN (
             SELECT DISTINCT IHubReferenceId
             FROM ihubcore.IHubWalletTransaction
@@ -1036,6 +1009,8 @@ def manualTB_sevice(start_date, end_date, service_name):
     except Exception as e:
         logger.error(f"Unexpected error in manualTB_service(): {e}")
     return result
+
+
 # ------------------------------------------------------------------------
 
 # tenant database filtering function------------------------------------------------

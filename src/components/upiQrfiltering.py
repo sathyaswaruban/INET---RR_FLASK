@@ -104,6 +104,7 @@ def filtering_Data(df_db, df_excel, service_name):
             "VENDOR_REFERENCE",
             "REFID",
             "IHUB_USERNAME",
+            "TRANS_MODE",
             "AMOUNT",
             "SERVICE_DATE",
             "VENDOR_STATUS",
@@ -284,6 +285,7 @@ def UpiQr_Service(start_date, end_date, service_name):
     wls.TenantDetailId as TENANT_ID,
     wls.EboUserName as IHUB_USERNAME,
     aet.Amount AS AMOUNT,
+    aet.RE2 as TRANS_MODE,
     CASE 
         WHEN Tenantwalletcheck.BankReferenceNo IS NOT NULL THEN 'YES'
         ELSE 'NO'

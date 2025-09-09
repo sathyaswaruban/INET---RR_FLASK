@@ -7,7 +7,7 @@ from handler import handler
 from flask_cors import CORS
 import traceback
 from typing import Dict, Any, Optional
-from components.IhubUsercounts import (inet_count, ebodetailed_data)
+from components.IhubUsercounts import inet_count, ebodetailed_data
 import numpy as np
 
 
@@ -16,16 +16,17 @@ app.secret_key = "inet_secret_key"
 
 
 # Configure CORS
-# CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
-CORS(
-    app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
-)
+CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+# CORS(
+#     app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
+# )
 
 
 # Constants
 REQUIRED_FIELDS = ["from_date", "to_date", "service_name"]
 SUCCESS_MESSAGE = "Data processed successfully!"
 FAILURE_MESSAGE = "Failed to process data"
+REQIRED_VENDORLEDGER_FIELDS = ["service_name", "vendor_ledger", "vendor_statement"]
 
 
 def validate_request(request) -> Optional[Dict[str, Any]]:
@@ -38,7 +39,30 @@ def validate_request(request) -> Optional[Dict[str, Any]]:
     # Check file upload
     if "file" not in request.files or not request.files["file"].filename:
         return {"error": "No file uploaded"}, 400
+    return None
 
+
+def validate_vendor_request(request) -> Optional[Dict[str, Any]]:
+    """Validate incoming vendor ledger request and return error response if invalid."""
+    # Check required fields
+    missing_fields = [
+        field
+        for field in REQIRED_VENDORLEDGER_FIELDS
+        if field not in request.form and field not in request.files
+    ]
+    if missing_fields:
+        return {"error": f"Missing required fields: {', '.join(missing_fields)}"}, 400
+    # Check file uploads
+    if (
+        "vendor_ledger" not in request.files
+        or not request.files["vendor_ledger"].filename
+    ):
+        return {"error": "No vendor ledger file uploaded"}, 400
+    if (
+        "vendor_statement" not in request.files
+        or not request.files["vendor_statement"].filename
+    ):
+        return {"error": "No vendor statement file uploaded"}, 400
     return None
 
 
@@ -55,8 +79,25 @@ def process_result(result: Any, service_name: str) -> Dict[str, Any]:
         if isinstance(value, pd.DataFrame):
             # Handle DataFrame conversion
             value = value.replace({pd.NA: None, np.nan: None})
+
+            # Handle datetime conversion
             for col in value.select_dtypes(include=["datetime64[ns]"]).columns:
                 value[col] = value[col].astype(object).where(value[col].notna(), None)
+
+            # ✅ Round numeric values in specific columns to 3 decimals
+            for col in ["AMOUNT", "COMMISSION_AMOUNT", "HUB_AMOUNT"]:
+                if col in value.columns:
+
+                    def safe_round(x):
+                        if pd.isna(x):
+                            return None
+                        try:
+                            return round(float(x), 3)
+                        except (ValueError, TypeError):
+                            return 0.000  # non-numeric fallback
+
+                    value[col] = value[col].apply(safe_round)
+
             processed_result[key] = value.to_dict(orient="records")
         elif isinstance(value, list):
             processed_result[key] = [
@@ -113,10 +154,43 @@ def reconciliation() -> tuple:
         )
 
 
+@app.route("/api/vendorledger_reconciliation", methods=["POST"])
+def vendorledger_reconciliation() -> tuple:
+    try:
+        # Validate request
+        if error_response := validate_vendor_request(request):
+            return jsonify(error_response[0]), error_response[1]
+
+        # Extract request data
+        request_data = {
+            "service_name": request.form["service_name"],
+            # "transaction_type": request.form.get("transaction_type"),
+            "vendor_ledger": request.files["vendor_ledger"],
+            "vendor_statement": request.files["vendor_statement"],
+        }
+        return jsonify(
+            {"message": "Vendor ledger reconciliation endpoint is under construction."}
+        )
+        # Process reconciliation
+    #     result = main(**request_data)
+    #     if isinstance(result, str):
+    #         # Original string handling - call handler directly
+    #         return handler("", result, request_data["service_name"])
+    #     else:
+    #         # Original non-string path - process_result then handler
+    #         processed = process_result(result, request_data["service_name"])
+    #         return processed
+    except Exception as e:
+        logger.error(f"Reconciliation error: {str(e)}\n{traceback.format_exc()}")
+        return jsonify(
+            handler(None, FAILURE_MESSAGE, request.form.get("service_name", ""))
+        )
+
+
 @app.route("/api/getEboData", methods=["GET"])
 def get_ebo_data() -> tuple:
     try:
-        result = inet_count()  
+        result = inet_count()
         if isinstance(result, str):
             return handler("", result, "inet_count")
         else:
@@ -126,14 +200,14 @@ def get_ebo_data() -> tuple:
     except Exception as e:
         logger.error(f"Error fetching EBO data: {str(e)}\n{traceback.format_exc()}")
         return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
-    
+
 
 @app.route("/api/getEbodetailedData", methods=["POST"])
 def get_ebo_detailed_data() -> tuple:
     try:
         # if error_response := validate_request(request):
         #     return jsonify(error_response[0]), error_response[1]
-        
+
         request_data = {
             "from_date": request.form["from_date"],
             "to_date": request.form["to_date"],
@@ -142,15 +216,17 @@ def get_ebo_detailed_data() -> tuple:
         }
         result = ebodetailed_data(**request_data)
         if isinstance(result, str):
-            return handler("", result, "ebodetailed_data")  
+            return handler("", result, "ebodetailed_data")
         else:
             processed = process_result(result, "ebodetailed_data")
             print(processed)
         return processed
     except Exception as e:
-        logger.error(f"Error fetching detailed EBO data: {str(e)}\n{traceback.format_exc()}")
+        logger.error(
+            f"Error fetching detailed EBO data: {str(e)}\n{traceback.format_exc()}"
+        )
         return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
 
 
-# if __name__ == "__main__":
-#     app.run(debug=True, host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)
