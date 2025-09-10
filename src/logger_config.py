@@ -1,15 +1,16 @@
 import os
 import logging
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 
 
 class DailyRenameFileHandler(logging.FileHandler):
     """
     Logs into logs/YYYY/MM/Reconciliation.log during the day.
-    At ~23:50, renames Reconciliation.log to Reconciliation-YYYY-MM-DD.log
-    in the same YYYY/MM folder.
-    Starts a fresh Reconciliation.log for the next day.
+    At rollover (next log on a new day), renames Reconciliation.log
+    to Reconciliation-YYYY-MM-DD.log based on the file's last write date.
+    Starts a fresh Reconciliation.log for the current day.
     Deletes logs older than retention_days.
+    Handles restarts safely (keeps appending to today's log if it already exists).
     """
 
     def __init__(
@@ -37,34 +38,51 @@ class DailyRenameFileHandler(logging.FileHandler):
         return os.path.join(dated_dir, self.filename)
 
     def emit(self, record):
-        """Write logs and check if rollover needed at ~23:50."""
+        """Write logs and check if rollover needed on date change."""
         now = datetime.now()
 
-        # Check if it's time to rollover
-        if now.time() >= time(23, 50) and (self.last_rollover_date != now.date()):
+        # If first log of the day → rollover
+        if self.last_rollover_date is None or self.last_rollover_date != now.date():
             self.doRollover(now)
 
         super().emit(record)
 
     def doRollover(self, now):
-        """Rename current log file with today's date inside YYYY/MM folder."""
-        self.stream.close()
+        """Rename current log file with correct last write date and start fresh log."""
+        if self.stream:
+            self.stream.close()
 
-        dated_dir = os.path.join(self.base_dir, str(now.year), f"{now.month:02d}")
+        rollover_date = None
+
+        # Check if existing log belongs to today (restart safe)
+        if os.path.exists(self.base_filename):
+            mtime = datetime.fromtimestamp(os.path.getmtime(self.base_filename))
+            file_date = mtime.date()
+
+            if file_date == now.date():
+                # It's already today's log → no rollover
+                self.stream = self._open()
+                self.last_rollover_date = now.date()
+                return
+            else:
+                rollover_date = file_date
+        else:
+            rollover_date = now.date()
+
+        # Save into YYYY/MM folder
+        dated_dir = os.path.join(self.base_dir, str(rollover_date.year), f"{rollover_date.month:02d}")
         os.makedirs(dated_dir, exist_ok=True)
 
-        # Rename current day's log
         dated_filename = os.path.join(
-            dated_dir, f"Reconciliation-{now.strftime('%Y-%m-%d')}.log"
+            dated_dir, f"Reconciliation-{rollover_date.strftime('%Y-%m-%d')}.log"
         )
 
+        # Rename existing log if it exists
         if os.path.exists(self.base_filename):
             os.rename(self.base_filename, dated_filename)
 
-        # Update base_filename for next day
+        # Start fresh Reconciliation.log for today
         self.base_filename = self._get_current_log_path()
-
-        # Open new Reconciliation.log for next day
         self.stream = self._open()
         self.last_rollover_date = now.date()
 
@@ -87,14 +105,20 @@ class DailyRenameFileHandler(logging.FileHandler):
                         pass  # Ignore unexpected names
 
 
+# ===============================
+# LOGGER SETUP
+# ===============================
+
 base_log_dir = "D:/INET_RR_FLASK/logs"
+
 logger = logging.getLogger("DailyLogger")
 logger.setLevel(logging.INFO)
 
-# Remove old handlers
+# Remove old handlers (avoid duplicates on reload)
 for handler in logger.handlers[:]:
     logger.removeHandler(handler)
 
+# Add custom file handler
 file_handler = DailyRenameFileHandler(base_dir=base_log_dir, retention_days=90)
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 file_handler.setFormatter(formatter)

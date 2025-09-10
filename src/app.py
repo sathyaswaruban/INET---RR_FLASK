@@ -9,6 +9,7 @@ import traceback
 from typing import Dict, Any, Optional
 from components.IhubUsercounts import inet_count, ebodetailed_data
 import numpy as np
+from components.vendorexcel import vendorexcel_reconciliation
 
 
 app = Flask(__name__)
@@ -111,6 +112,50 @@ def process_result(result: Any, service_name: str) -> Dict[str, Any]:
     return handler(processed_result, SUCCESS_MESSAGE, service_name)
 
 
+def process_vendor_result(result: Any, service_name: str) -> Dict[str, Any]:
+    """Process the result from vendorexcel_reconciliation() into a serializable format."""
+
+    # If the result is just a message string
+    if isinstance(result, str):
+        return handler("", result, service_name)
+
+    # If result is not a dict, treat as failure
+    if not isinstance(result, dict):
+        return handler("", FAILURE_MESSAGE, service_name)
+
+    processed_result = {}
+
+    for key, value in result.items():
+        if isinstance(value, pd.DataFrame):
+            # Replace missing values with None
+            value = value.replace({pd.NA: None, np.nan: None})
+
+            # Convert datetime columns to YYYY-MM-DD string (no time)
+            for col in value.select_dtypes(include=["datetime64[ns]"]).columns:
+                value[col] = (
+                    value[col].dt.strftime("%Y-%m-%d").where(value[col].notna(), None)
+                )
+
+            # Convert dataframe to list of dicts
+            processed_result[key] = value.to_dict(orient="records")
+
+        elif isinstance(value, list):
+            # Convert objects in list to dict if needed
+            processed_result[key] = [
+                item if not hasattr(item, "__dict__") else vars(item) for item in value
+            ]
+
+        elif hasattr(value, "__dict__"):
+            # Convert custom object to dict
+            processed_result[key] = vars(value)
+
+        else:
+            # Keep primitive types as-is
+            processed_result[key] = value
+
+    return handler(processed_result, SUCCESS_MESSAGE, service_name)
+
+
 @app.errorhandler(404)
 def not_found(e) -> tuple:
     return jsonify({"error": "Resource not found"}), 404
@@ -168,18 +213,15 @@ def vendorledger_reconciliation() -> tuple:
             "vendor_ledger": request.files["vendor_ledger"],
             "vendor_statement": request.files["vendor_statement"],
         }
-        return jsonify(
-            {"message": "Vendor ledger reconciliation endpoint is under construction."}
-        )
-        # Process reconciliation
-    #     result = main(**request_data)
-    #     if isinstance(result, str):
-    #         # Original string handling - call handler directly
-    #         return handler("", result, request_data["service_name"])
-    #     else:
-    #         # Original non-string path - process_result then handler
-    #         processed = process_result(result, request_data["service_name"])
-    #         return processed
+
+        result = vendorexcel_reconciliation(**request_data)
+        if isinstance(result, str):
+            # Original string handling - call handler directly
+            return handler("", result, request_data["service_name"])
+        else:
+            # Original non-string path - process_result then handler
+            processed = process_vendor_result(result, request_data["service_name"])
+            return processed
     except Exception as e:
         logger.error(f"Reconciliation error: {str(e)}\n{traceback.format_exc()}")
         return jsonify(
