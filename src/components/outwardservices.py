@@ -742,7 +742,7 @@ def insurance_offline_service(start_date, end_date, service_name):
         mt.TenantDetailId as TENANT_ID,   
         niit.CreationTs AS SERVICE_DATE,
         niit.InsuranceStatusType AS service_status,
-        niit.Amount as AMOUNT,
+        niit.Amount as HUB_AMOUNT,
         CASE 
             WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
             ELSE 'No'

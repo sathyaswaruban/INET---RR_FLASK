@@ -533,7 +533,7 @@ def unified_filtering_data(
 def filtering_Data(df_db, df_excel, service_name):
 
     # Use the unified filtering function with parameters matching the old logic
-    if service_name == "PASSPORT":
+    if service_name in ["PASSPORT","INSURANCE_OFFLINE"]:
         required_columns = [
             "CATEGORY",
             "VENDOR_DATE",
@@ -543,12 +543,12 @@ def filtering_Data(df_db, df_excel, service_name):
             "IHUB_USERNAME",
             "AMOUNT",
             "HUB_AMOUNT",
+            "COMMISSION_AMOUNT",
             "VENDOR_STATUS",
             "IHUB_MASTER_STATUS",
             f"{service_name}_STATUS",
             "SERVICE_DATE",
             "IHUB_LEDGER_STATUS",
-            "BILL_FETCH_STATUS",
             "TENANT_LEDGER_STATUS",
             "TRANSACTION_CREDIT",
             "TRANSACTION_DEBIT",

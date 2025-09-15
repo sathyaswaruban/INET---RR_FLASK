@@ -17,10 +17,10 @@ app.secret_key = "inet_secret_key"
 
 
 # Configure CORS
-# CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
-CORS(
-    app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
-)
+CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+# CORS(
+#     app, supports_credentials=True, origins=["http://192.168.1.157:8300"]
+# )
 
 
 # Constants
@@ -67,6 +67,19 @@ def validate_vendor_request(request) -> Optional[Dict[str, Any]]:
     return None
 
 
+def clean_nans(obj):
+    """Recursively replace NaN, pd.NA, and 'nan' strings with None."""
+    if isinstance(obj, float) and (pd.isna(obj) or np.isnan(obj)):
+        return None
+    if isinstance(obj, str) and obj.strip().lower() in ("nan", "none", ""):
+        return None
+    if isinstance(obj, dict):
+        return {k: clean_nans(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [clean_nans(v) for v in obj]
+    return obj
+
+
 def process_result(result: Any, service_name: str) -> Dict[str, Any]:
     """Process the result from main() into a serializable format."""
     if isinstance(result, str):
@@ -98,8 +111,8 @@ def process_result(result: Any, service_name: str) -> Dict[str, Any]:
                             return 0.000  # non-numeric fallback
 
                     value[col] = value[col].apply(safe_round)
-
-            processed_result[key] = value.to_dict(orient="records")
+            # value = value.where(pd.notna(value), None)
+            processed_result[key] = clean_nans(value.to_dict(orient="records"))
         elif isinstance(value, list):
             processed_result[key] = [
                 item if not hasattr(item, "__dict__") else vars(item) for item in value
@@ -137,7 +150,7 @@ def process_vendor_result(result: Any, service_name: str) -> Dict[str, Any]:
                 )
 
             # Convert dataframe to list of dicts
-            processed_result[key] = value.to_dict(orient="records")
+            processed_result[key] = clean_nans(value.to_dict(orient="records"))
 
         elif isinstance(value, list):
             # Convert objects in list to dict if needed
@@ -270,5 +283,5 @@ def get_ebo_detailed_data() -> tuple:
         return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
 
 
-# if __name__ == "__main__":
-#     app.run(debug=True, host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)

@@ -103,6 +103,7 @@ SERVICE_CONFIGS = {
             "Issued Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
             "Policy No": "REFID",
+            "Total Amount": "AMOUNT",
         },
         "required_columns": ["Policy No"],
     },
