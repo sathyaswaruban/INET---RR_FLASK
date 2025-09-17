@@ -649,13 +649,13 @@ def vendorexcel_reconciliation(
             # Find matching amounts
             amount_match_df = merged_df[
                 merged_df["AMOUNT_LEDGER"] == merged_df["AMOUNT_STATEMENT"]
-            ]
+            ].copy()
             amount_mismatch_rows = merged_df[
                 merged_df["AMOUNT_LEDGER"] != merged_df["AMOUNT_STATEMENT"]
-            ]
+            ].copy()
 
             # Add DATE column to amount_mismatch_rows
-            amount_mismatch_rows["DATE"] = amount_mismatch_rows["TRANSACTION DATE_x"]
+            amount_mismatch_rows.loc[:, "DATE"] = amount_mismatch_rows["TRANSACTION DATE_x"]
             amount_mismatch_rows = safe_column_select(
                 amount_mismatch_rows, REQUIRED_COLUMNS
             )
@@ -663,7 +663,7 @@ def vendorexcel_reconciliation(
             if not amount_match_df.empty:
                 matched_count = amount_match_df.shape[0]
                 # Add DATE column to matched transactions
-                amount_match_df["DATE"] = amount_match_df["TRANSACTION DATE_x"]
+                amount_match_df.loc[:, "DATE"] = amount_match_df["TRANSACTION DATE_x"]
                 merged_df = safe_column_select(amount_match_df, REQUIRED_COLUMNS)
             else:
                 matched_count = 0
@@ -675,10 +675,6 @@ def vendorexcel_reconciliation(
                 + amount_mismatch_rows.shape[0]
             )
             logger.info("Vendor ledger reconciliation completed successfully.")
-            print("matched_trans", merged_df.head(5))
-            print("not_in_statement", not_in_statement_df.head(5))
-            print("not_in_ledger", not_in_ledger_df.head(5))
-            print("amount_mismatch", amount_mismatch_rows.head(5))
             if (
                 not_in_ledger_df.empty
                 and not_in_statement_df.empty
