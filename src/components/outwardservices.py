@@ -100,8 +100,8 @@ def get_ebo_wallet_data(start_date, end_date):
         ON mt2.TenantMasterTransactionId = ewt.MasterTransactionsId
         OR mt2.TransactionRefNum = ewt.IHubReferenceId
         WHERE
-            DATE(mt2.CreationTs) BETWEEN '2025-09-01' and '2025-09-13'
-            AND DATE(ewt.CreationTs) BETWEEN '2025-09-01' AND DATE_ADD('2025-09-13', INTERVAL 30 DAY)
+            DATE(mt2.CreationTs) BETWEEN :start_date AND :end_date
+            AND DATE(ewt.CreationTs) BETWEEN :end_date AND DATE_ADD(:end_date, INTERVAL 30 DAY)
         GROUP BY
             mt2.TransactionRefNum,
             ewt.MasterTransactionsId
