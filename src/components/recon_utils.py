@@ -35,7 +35,6 @@ def map_tenant_id_column(
         )
     return df
 
-
 def merge_ebo_wallet_data(
     df: pd.DataFrame, start_date, end_date, get_ebo_wallet_data_func
 ) -> pd.DataFrame:

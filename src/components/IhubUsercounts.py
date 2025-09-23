@@ -155,12 +155,12 @@ SERVICE_CONFIGS = {
     },
     "I-NET UP Users": {
         "ebo_status": ["active", "inactive"],
-        "activequery": """SELECT u.UserName, u.FirstName as Customer_Name, u.MobileNo as Phone_Num, u.Email,p.Name as Package_Name, DATE(pph.ExpireTs) as Expiry_Date
+        "activequery": """SELECT u.UserName,u.VleId as Vle_Id, u.FirstName as Customer_Name, u.MobileNo as Phone_Num, u.Email,p.Name as Package_Name, DATE(pph.ExpireTs) as Expiry_Date
                 FROM tenantinetcsc.UserPurchasedPackage pph
                 LEFT JOIN tenantinetcsc.`User` u ON u.id = pph.UserId
                 left join tenantinetcsc.Package p on p.id = pph.PackageId
                 WHERE DATE(pph.ExpireTs) >= :from_date AND u.UserRoleId = 2  AND u.UserName LIKE 'up01%' and pph.PackageId in (1,4)""",
-        "inactivequery": """SELECT u.UserName , u.FirstName  as Customer_Name, u.MobileNo as Phone_Num, u.Email,p.Name as Package_Name, DATE(pph.ExpireTs) as Expiry_Date
+        "inactivequery": """SELECT u.UserName,u.VleId as Vle_Id , u.FirstName  as Customer_Name, u.MobileNo as Phone_Num, u.Email,p.Name as Package_Name, DATE(pph.ExpireTs) as Expiry_Date
                 FROM tenantinetcsc.UserPurchasedPackage pph
                 LEFT JOIN tenantinetcsc.`User` u ON u.id = pph.UserId
                 left join tenantinetcsc.Package p on p.id = pph.PackageId
