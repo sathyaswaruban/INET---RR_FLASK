@@ -655,7 +655,9 @@ def vendorexcel_reconciliation(
             ].copy()
 
             # Add DATE column to amount_mismatch_rows
-            amount_mismatch_rows.loc[:, "DATE"] = amount_mismatch_rows["TRANSACTION DATE_x"]
+            amount_mismatch_rows.loc[:, "DATE"] = amount_mismatch_rows[
+                "TRANSACTION DATE_x"
+            ]
             amount_mismatch_rows = safe_column_select(
                 amount_mismatch_rows, REQUIRED_COLUMNS
             )
@@ -704,7 +706,165 @@ def vendorexcel_reconciliation(
                     "amount_mismatch": amount_mismatch_rows,
                     "credit_transactions_ledger": credit_trans,
                 }
-
+        elif service_name in ["LIC"]:
+    # === Standardize columns and read IDs as strings ===
+            statement_df = pd.read_excel(
+                vendor_statement,
+                dtype={"IMWTID": str, "AMOUNT": str}
+            )
+            
+            ledger_df = pd.read_excel(
+                vendor_ledger,
+                dtype={"TID": str, "REFERENCE TID": str, "DR": str, "CR": str}
+            )
+            
+            # Standardize column names
+            statement_df.columns = statement_df.columns.str.strip().str.upper()
+            ledger_df.columns = ledger_df.columns.str.strip().str.upper()
+            
+            # Filter valid IMWTID rows
+            statement_df = statement_df[
+                statement_df["IMWTID"].notna() & 
+                (statement_df["IMWTID"].astype(str).str.strip() != "NA")
+            ].copy()
+            statement_count = statement_df.shape[0]
+            
+            # Rename columns
+            statement_df = statement_df.rename(columns={
+                "AMOUNT": "STMT_AMOUNT", 
+                "IMWTID": "STMT_TID"
+            })
+            ledger_df = ledger_df.rename(columns={
+                "DR": "LDG_AMOUNT", 
+                "TID": "LDG_TID", 
+                "CR": "COMM_AMT"
+            })
+            
+            # === Standardize TID columns as strings ===
+            tid_columns = {
+                "statement": ["STMT_TID"],
+                "ledger": ["LDG_TID", "REFERENCE TID"]
+            }
+            
+            for col in tid_columns["statement"]:
+                statement_df[col] = statement_df[col].astype(str).str.strip()
+            
+            for col in tid_columns["ledger"]:
+                ledger_df[col] = ledger_df[col].astype(str).str.strip()
+            
+            # === Clean and convert numeric columns ===
+            numeric_columns = {
+                "statement": ["STMT_AMOUNT"],
+                "ledger": ["LDG_AMOUNT", "COMM_AMT"]
+            }
+            
+            for col in numeric_columns["statement"]:
+                statement_df[col] = pd.to_numeric(
+                    statement_df[col].astype(str).str.strip(), 
+                    errors="coerce"
+                )
+            
+            for col in numeric_columns["ledger"]:
+                ledger_df[col] = pd.to_numeric(
+                    ledger_df[col].astype(str).str.strip(), 
+                    errors="coerce"
+                )
+            
+            # === Reconciliation logic ===
+            REQUIRED_COLUMNS = [
+                "LDG_TID", "COMMISSION_TID", "COMM_AMT", 
+                "LDG_AMOUNT", "STMT_AMOUNT", "DATE"
+            ]
+            
+            # Find unmatched transactions
+            not_in_ledger_df = statement_df[
+                ~statement_df["STMT_TID"].isin(ledger_df["LDG_TID"])
+            ].copy()
+            
+            not_in_statement_df = ledger_df[
+                ~ledger_df["LDG_TID"].isin(statement_df["STMT_TID"])
+            ].copy()
+            
+            # Match on TID and amount
+            matched_df = ledger_df.merge(
+                statement_df,
+                left_on="LDG_TID",
+                right_on="STMT_TID",
+                how="inner",
+            )
+            amount_matched_df = matched_df[matched_df["LDG_AMOUNT"] == matched_df["STMT_AMOUNT"]]
+            amount_matched_df = safe_column_select(amount_matched_df, REQUIRED_COLUMNS)
+            print("Matched Columns:", amount_matched_df.head(5))
+            # Amount mismatches
+            amount_mismatch_rows = matched_df[
+                matched_df["LDG_AMOUNT"] != matched_df["STMT_AMOUNT"]
+            ].copy()
+            amount_mismatch_rows = safe_column_select(amount_mismatch_rows, REQUIRED_COLUMNS)
+            
+            # Commission matching
+            commission_match_df = not_in_statement_df[
+                not_in_statement_df["LDG_TID"].isin(ledger_df["LDG_TID"])
+            ].copy()
+            
+            # Ensure consistent data types for merging
+            commission_match_df["REFERENCE TID"] = commission_match_df["REFERENCE TID"].astype(str).str.strip()
+            amount_matched_df["LDG_TID"] = amount_matched_df["LDG_TID"].astype(str).str.strip()
+            
+            # Final unmatched statements
+           
+            
+            # Merge commission transactions
+            matched_trans_comm_df = amount_matched_df.merge(
+                commission_match_df,
+                left_on="LDG_TID",
+                right_on="REFERENCE TID",
+                how="inner",
+            ).rename(columns={
+                "COMM_AMT_y": "COMM_AMT",
+                "LDG_AMOUNT_x": "LDG_AMOUNT",
+                "LDG_TID_x": "LDG_TID",
+                "LDG_TID_y": "COMMISSION_TID"
+            })
+            
+            matched_trans_comm_df = safe_column_select(matched_trans_comm_df, REQUIRED_COLUMNS)
+            not_in_ledger_df = safe_column_select(not_in_ledger_df, REQUIRED_COLUMNS)
+            not_in_statement_final_df = not_in_statement_df[
+                ~not_in_statement_df["LDG_TID"].isin(matched_trans_comm_df["COMMISSION_TID"])
+            ].copy()
+            not_in_statement_final_df = safe_column_select(not_in_statement_final_df, REQUIRED_COLUMNS)
+            
+            # Count calculations
+            matched_count = matched_trans_comm_df.shape[0]
+            failed_count = (not_in_ledger_df.shape[0] + 
+                        not_in_statement_final_df.shape[0] + 
+                        amount_mismatch_rows.shape[0])
+            credit_count = ledger_df[
+                ledger_df["COMM_AMT"].notna() & (ledger_df["COMM_AMT"] != 0)
+            ].shape[0]
+            ledger_count = ledger_df.shape[0]
+            
+            logger.info("Vendor ledger reconciliation completed successfully.")
+            # Prepare response
+            result_data = {
+                "matching_trans": matched_trans_comm_df,
+                "ledger_count": ledger_count,
+                "statement_count": statement_count,
+                "matched_trans_count": matched_count,
+                "failed_trans_count": failed_count,
+                "ledger_credit_count": credit_count,
+            }
+            
+            # Add mismatch data only if present
+            if not (amount_mismatch_rows.empty and not_in_ledger_df.empty and not_in_statement_final_df.empty):
+                result_data.update({
+                    "not_in_statement": not_in_statement_final_df,
+                    "not_in_ledger": not_in_ledger_df,
+                    "amount_mismatch": amount_mismatch_rows,
+                })
+            else:
+                result_data["message"] = "There is no Groupla Doopu..!🎉"
+            
+            return result_data
         else:
             logger.warning(
                 f"Service {service_name} not supported for vendor ledger reconciliation."
