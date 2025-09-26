@@ -446,7 +446,6 @@ def unified_filtering_data(
             & (matched[status_column_excel].astype(str).str.lower() == "failed")
         ]
         failed_count = matched_failed_status.shape[0]
-        print(scenarios["ihub_vend_fail_not_in_ledger"])
         # Align and combine
         combine_keys = [
             "not_in_vendor",

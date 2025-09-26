@@ -75,36 +75,75 @@ def getServiceId(MasterServiceId, MasterVendorId):
         logger.error(f"Unexpected error : {e}")
     return result
 
+
 def get_ebo_wallet_data(start_date, end_date):
     logger.info("Fetching Data from EBO Wallet Transaction")
     ebo_df = None
+
     query = text(
         """
-        SELECT  
-            mt2.TransactionRefNum AS IHubReferenceId,
-            ewt.MasterTransactionsId,
-            MAX(
-                CASE 
-                    WHEN ewt.Description IN ('Transaction - Credit', 'Transaction - Credit due to failure', 'Transaction - Refund','Manual Refund Credit - Transaction - Credit')
-                    THEN 'Yes' 
-                    ELSE 'No' 
-                END
-            ) AS TRANSACTION_CREDIT,
-            MAX(CASE WHEN ewt.Description IN ('Transaction - Debit','Manual Refund Debit - Transaction - Debit') THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
-            MAX(CASE WHEN ewt.Description IN ('Commission Added','Manual Refund Credit - Commission - Added') THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
-            MAX(CASE WHEN ewt.Description IN ('Commission - Reversal','Commission Reversal','Manual Refund Debit - Commission - Reversal') THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
-        FROM
-            ihubcore.MasterTransaction mt2
-        JOIN  
-            tenantinetcsc.EboWalletTransaction ewt
-        ON mt2.TenantMasterTransactionId = ewt.MasterTransactionsId
-        OR mt2.TransactionRefNum = ewt.IHubReferenceId
-        WHERE
-            DATE(mt2.CreationTs) BETWEEN :start_date AND :end_date
-            AND DATE(ewt.CreationTs) BETWEEN :end_date AND DATE_ADD(:end_date, INTERVAL 30 DAY)
-        GROUP BY
-            mt2.TransactionRefNum,
-            ewt.MasterTransactionsId
+            SELECT  
+            Finall.IHubReferenceId,
+            Finall.MasterTransactionsId,
+            MAX(Finall.TRANSACTION_CREDIT)   AS TRANSACTION_CREDIT,
+            MAX(Finall.TRANSACTION_DEBIT)    AS TRANSACTION_DEBIT,
+            MAX(Finall.COMMISSION_CREDIT)    AS COMMISSION_CREDIT,
+            MAX(Finall.COMMISSION_REVERSAL)  AS COMMISSION_REVERSAL
+        FROM (
+            -- Case 1
+            SELECT  
+                mt2.TransactionRefNum AS IHubReferenceId,
+                ewt.MasterTransactionsId,
+                MAX(CASE WHEN ewt.Description IN (
+                    'Transaction - Credit', 'Transaction - Credit due to failure', 'Transaction - Refund',
+                    'Manual Refund Credit - Transaction - Credit'
+                ) THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
+                MAX(CASE WHEN ewt.Description IN (
+                    'Transaction - Debit','Manual Refund Debit - Transaction - Debit'
+                ) THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
+                MAX(CASE WHEN ewt.Description IN (
+                    'Commission Added','Manual Refund Credit - Commission - Added'
+                ) THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
+                MAX(CASE WHEN ewt.Description IN (
+                    'Commission - Reversal','Commission Reversal','Manual Refund Debit - Commission - Reversal'
+                ) THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
+            FROM ihubcore.MasterTransaction mt2
+            JOIN tenantinetcsc.EboWalletTransaction ewt
+                ON mt2.TenantMasterTransactionId = ewt.MasterTransactionsId
+            WHERE mt2.CreationTs >= CONCAT(:start_date, ' 00:00:00')
+            AND mt2.CreationTs <  CONCAT(:end_date, ' 00:00:00')
+            AND ewt.CreationTs >= CONCAT(:start_date, ' 00:00:00')
+            AND ewt.CreationTs <  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
+            GROUP BY mt2.TransactionRefNum, ewt.MasterTransactionsId
+
+            UNION
+
+            -- Case 2
+            SELECT  
+                mt2.TransactionRefNum AS IHubReferenceId,
+                ewt.MasterTransactionsId,
+                MAX(CASE WHEN ewt.Description IN (
+                    'Transaction - Credit', 'Transaction - Credit due to failure', 'Transaction - Refund',
+                    'Manual Refund Credit - Transaction - Credit'
+                ) THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
+                MAX(CASE WHEN ewt.Description IN (
+                    'Transaction - Debit','Manual Refund Debit - Transaction - Debit'
+                ) THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
+                MAX(CASE WHEN ewt.Description IN (
+                    'Commission Added','Manual Refund Credit - Commission - Added'
+                ) THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
+                MAX(CASE WHEN ewt.Description IN (
+                    'Commission - Reversal','Commission Reversal','Manual Refund Debit - Commission - Reversal'
+                ) THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
+            FROM ihubcore.MasterTransaction mt2
+            JOIN tenantinetcsc.EboWalletTransaction ewt
+                ON mt2.TransactionRefNum = ewt.IHubReferenceId
+            WHERE mt2.CreationTs >= CONCAT(:start_date, ' 00:00:00')
+            AND mt2.CreationTs <  CONCAT(:end_date, ' 00:00:00')
+            AND ewt.CreationTs >= CONCAT(:start_date, ' 00:00:00')
+            AND ewt.CreationTs <  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
+            GROUP BY mt2.TransactionRefNum, ewt.MasterTransactionsId)as Finall
+        GROUP BY Finall.IHubReferenceId
         """
     )
 
@@ -113,6 +152,7 @@ def get_ebo_wallet_data(start_date, end_date):
         ebo_df = execute_sql_with_retry(
             query, params={"start_date": start_date, "end_date": end_date}
         )
+
         if ebo_df.empty:
             logger.warning("No data returned from EBO Wallet table.")
             return pd.DataFrame()
@@ -120,24 +160,35 @@ def get_ebo_wallet_data(start_date, end_date):
         # =============================
         # Merge multiple NULL-ID rows into proper rows
         # =============================
-        null_rows = ebo_df[ebo_df['MasterTransactionsId'].isna()]
-        non_null_rows = ebo_df[ebo_df['MasterTransactionsId'].notna()]
+        null_rows = ebo_df[ebo_df["MasterTransactionsId"].isna()]
+        non_null_rows = ebo_df[ebo_df["MasterTransactionsId"].notna()]
 
         # Columns to merge
-        flag_cols = ["TRANSACTION_CREDIT","TRANSACTION_DEBIT","COMMISSION_CREDIT","COMMISSION_REVERSAL"]
+        flag_cols = [
+            "TRANSACTION_CREDIT",
+            "TRANSACTION_DEBIT",
+            "COMMISSION_CREDIT",
+            "COMMISSION_REVERSAL",
+        ]
 
-        for hub_id in null_rows['IHubReferenceId'].unique():
-            null_subset = null_rows[null_rows['IHubReferenceId'] == hub_id]
+        for hub_id in null_rows["IHubReferenceId"].unique():
+            null_subset = null_rows[null_rows["IHubReferenceId"] == hub_id]
 
-            target_index = non_null_rows[non_null_rows['IHubReferenceId'] == hub_id].index
+            target_index = non_null_rows[
+                non_null_rows["IHubReferenceId"] == hub_id
+            ].index
 
             if not target_index.empty:
                 for col in flag_cols:
                     # If any NULL row has 'Yes', set 'Yes' in target row
                     merged_flag = "Yes" if (null_subset[col] == "Yes").any() else "No"
-                    non_null_rows.loc[target_index, col] = non_null_rows.loc[target_index, col].combine(
-                        pd.Series([merged_flag]*len(target_index), index=target_index),
-                        lambda x, y: "Yes" if y == "Yes" else x
+                    non_null_rows.loc[target_index, col] = non_null_rows.loc[
+                        target_index, col
+                    ].combine(
+                        pd.Series(
+                            [merged_flag] * len(target_index), index=target_index
+                        ),
+                        lambda x, y: "Yes" if y == "Yes" else x,
                     )
 
         # Return only non-null rows with merged values
@@ -151,7 +202,6 @@ def get_ebo_wallet_data(start_date, end_date):
         return pd.DataFrame()
 
     return ebo_df
-
 
 
 # Recharge service function ---------------------------------------------------
@@ -293,7 +343,7 @@ def Bbps_service(start_date, end_date, service_name):
     )
 
     # Final result
-    print(core_df.shape[0])
+    # print(core_df.shape[0])
 
     params = {"start_date": start_date, "end_date": end_date}
     try:
