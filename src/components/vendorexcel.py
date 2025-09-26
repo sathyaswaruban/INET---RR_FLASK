@@ -1,8 +1,23 @@
-import pandas as pd
-from logger_config import logger
-import traceback
-import numpy as np
 
+import pandas as pd
+import numpy as np
+import traceback
+from logger_config import logger
+
+
+def safe_column_select(df, columns):
+    """Return a DataFrame with only the columns that exist in df."""
+    existing_cols = [col for col in columns if col in df.columns]
+    return df[existing_cols].copy()
+
+def clean_rrn_value(value):
+    """Clean RRN/Amount values: float->int, strip, handle NaN."""
+    try:
+        if pd.notna(value) and str(value).strip().lower() != "nan":
+            return str(int(float(value)))
+        return ""
+    except (ValueError, TypeError):
+        return str(value).strip() if pd.notna(value) else ""
 
 def vendorexcel_reconciliation(
     service_name: str,
@@ -20,64 +35,57 @@ def vendorexcel_reconciliation(
         ledger_count = ledger_df.shape[0]
         statement_count = statement_df.shape[0]
 
-        def safe_column_select(df, columns):
-            existing_cols = [col for col in columns if col in df.columns]
-            return df[existing_cols].copy()
+
 
         # Service-specific processing
-        if service_name in ["DMT"]:
-            statement_df["STATUS"] = (
-                statement_df["STATUS"]
-                .astype(str)
-                .str.lower()
-                .apply(lambda x: "failed" if "refunded" in x else "success")
+
+        # --- DMT specific status normalization ---
+        """
+        DMT Service Block
+        - Normalizes status column to 'failed' or 'success'.
+        """
+        if service_name == "DMT":
+            statement_df["STATUS"] = statement_df["STATUS"].astype(str).str.lower().apply(
+                lambda x: "failed" if "refunded" in x else "success"
             )
 
+     # --- RECHARGE & DMT reconciliation ---
+        """
+        RECHARGE & DMT Service Block
+        - Handles matching, mismatches, and refund logic for recharge and DMT services.
+        """
         if service_name in ["RECHARGE", "DMT"]:
-            # Precompute frequently used values
-            failed_count = statement_df[
-                statement_df["STATUS"].str.strip().str.lower() == "failed"
-            ].shape[0]
-            credit_count = ledger_df[
-                ledger_df["TYPE"].str.strip().str.lower() == "credit"
-            ].shape[0]
 
-            # Column renaming
-            if "COMM/SHARE" in ledger_df.columns:
-                ledger_df = ledger_df.rename(columns={"COMM/SHARE": "COMM"})
-            if "NET COMMISSION" in statement_df.columns:
-                statement_df = statement_df.rename(columns={"NET COMMISSION": "COMM"})
+            failed_count = statement_df[statement_df["STATUS"].str.strip().str.lower() == "failed"].shape[0]
+            credit_count = ledger_df[ledger_df["TYPE"].str.strip().str.lower() == "credit"].shape[0]
+
+
+            # Standardize commission columns
+            ledger_df = ledger_df.rename(columns={"COMM/SHARE": "COMM"}) if "COMM/SHARE" in ledger_df.columns else ledger_df
+            statement_df = statement_df.rename(columns={"NET COMMISSION": "COMM"}) if "NET COMMISSION" in statement_df.columns else statement_df
+
 
             # Date formatting
             for df in [ledger_df, statement_df]:
                 if "DATE" in df.columns:
-                    df["DATE"] = pd.to_datetime(
-                        df["DATE"], errors="coerce"
-                    ).dt.strftime("%Y-%m-%d")
+                    df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce").dt.strftime("%Y-%m-%d")
 
-            # Required columns
+
             REQUIRED_COLUMNS = [
-                "TXNID",
-                "AMOUNT",
-                "COMM",
-                "TDS",
-                "TYPE",
-                "DATE",
-                "REFID",
-                "REFUND_TXNID",
+                "TXNID", "AMOUNT", "COMM", "TDS", "TYPE", "DATE", "REFID", "REFUND_TXNID"
             ]
 
-            # Clean TXNID columns
+
             statement_df["REFID"] = statement_df["REFID"].astype(str).str.strip()
 
-            # Matching transactions
+
             matching_Trans_df = statement_df.merge(
                 ledger_df[["TXNID", "TYPE"]], on="TXNID", how="inner"
             )
             matching_Trans_df = safe_column_select(matching_Trans_df, REQUIRED_COLUMNS)
             matched_count = matching_Trans_df.shape[0]
 
-            # Records in ledger but not in statement
+
             ledger_txnids = ledger_df["TXNID"].astype(str).str.strip()
             statement_txnids = statement_df["TXNID"].astype(str).str.strip()
 
@@ -94,90 +102,52 @@ def vendorexcel_reconciliation(
             ].copy()
             not_in_ledger_df = safe_column_select(not_in_ledger_df, REQUIRED_COLUMNS)
 
+
             # Extract REFUND_TXNID
-            if "REFUND" in statement_df.columns:
-                if service_name == "RECHARGE":
-                    statement_df["REFUND_TXNID"] = statement_df["REFUND"].str.extract(
-                        r"Txnid(\d+)", expand=False
-                    )
-                elif service_name == "DMT":
-                    statement_df["REFUND_TXNID"] = statement_df[
-                        "REFUNDTXNID"
-                    ].str.strip()
+            if "REFUND" in statement_df.columns and service_name == "RECHARGE":
+                statement_df["REFUND_TXNID"] = statement_df["REFUND"].str.extract(r"Txnid(\d+)", expand=False)
+            elif "REFUNDTXNID" in statement_df.columns and service_name == "DMT":
+                statement_df["REFUND_TXNID"] = statement_df["REFUNDTXNID"].str.strip()
 
-            # Filter failed refunds
+
             failed_refunds = (
-                statement_df.loc[
-                    statement_df["STATUS"].str.lower().str.strip() == "failed"
-                ].copy()
-                if "STATUS" in statement_df.columns
-                else pd.DataFrame(columns=statement_df.columns)
+                statement_df.loc[statement_df["STATUS"].str.lower().str.strip() == "failed"].copy()
+                if "STATUS" in statement_df.columns else pd.DataFrame(columns=statement_df.columns)
             )
 
-            # Matching refunds
-            not_in_statement_df["TXNID"] = (
-                not_in_statement_df["TXNID"].astype(str).str.strip()
-            )
-            failed_refunds["REFUND_TXNID"] = (
-                failed_refunds["REFUND_TXNID"].astype(str).str.strip()
-            )
 
-            matching_refunds_df = (
-                failed_refunds.merge(
-                    not_in_statement_df[["TXNID", "TYPE"]],
-                    left_on="REFUND_TXNID",
-                    right_on="TXNID",
-                    how="inner",
-                    indicator=True,
-                )
-                .query('_merge == "both"')
-                .drop(columns=["TXNID_y", "_merge"])
-                .rename(columns={"TXNID_x": "TXNID"})
-            )
-            matching_refunds_df = safe_column_select(
-                matching_refunds_df, REQUIRED_COLUMNS
-            )
+            not_in_statement_df["TXNID"] = not_in_statement_df["TXNID"].astype(str).str.strip()
+            failed_refunds["REFUND_TXNID"] = failed_refunds["REFUND_TXNID"].astype(str).str.strip()
 
-            # Mismatch handling
+
+            matching_refunds_df = failed_refunds.merge(
+                not_in_statement_df[["TXNID", "TYPE"]],
+                left_on="REFUND_TXNID", right_on="TXNID", how="inner", indicator=True
+            )
+            matching_refunds_df = matching_refunds_df.query('_merge == "both"').drop(columns=["TXNID_y", "_merge"]).rename(columns={"TXNID_x": "TXNID"})
+            matching_refunds_df = safe_column_select(matching_refunds_df, REQUIRED_COLUMNS)
+
+
             if "REFUND_TXNID" in failed_refunds.columns:
                 merged_df = failed_refunds.merge(
                     not_in_statement_df[["TXNID", "TYPE"]],
-                    left_on="REFUND_TXNID",
-                    right_on="TXNID",
-                    how="outer",
-                    indicator=True,
+                    left_on="REFUND_TXNID", right_on="TXNID", how="outer", indicator=True
                 )
-
-                mismatch_statement_df = (
-                    merged_df.query('_merge == "left_only"')
-                    .drop(columns=["_merge", "TXNID_y"])
-                    .rename(columns={"TXNID_x": "TXNID"})
-                )
-
-                mismatch_ledger_df = (
-                    merged_df.query('_merge == "right_only"')
-                    .drop(columns=["_merge", "TXNID_x"])
-                    .rename(columns={"TXNID_y": "TXNID"})
-                )
+                mismatch_statement_df = merged_df.query('_merge == "left_only"').drop(columns=["_merge", "TXNID_y"]).rename(columns={"TXNID_x": "TXNID"})
+                mismatch_ledger_df = merged_df.query('_merge == "right_only"').drop(columns=["_merge", "TXNID_x"]).rename(columns={"TXNID_y": "TXNID"})
             else:
                 mismatch_statement_df = not_in_statement_df.copy()
                 mismatch_ledger_df = pd.DataFrame(columns=REQUIRED_COLUMNS)
 
-            mismatch_ledger_df = safe_column_select(
-                mismatch_ledger_df, REQUIRED_COLUMNS
-            )
-            mismatch_statement_df = safe_column_select(
-                mismatch_statement_df, REQUIRED_COLUMNS
-            )
+
+            mismatch_ledger_df = safe_column_select(mismatch_ledger_df, REQUIRED_COLUMNS)
+            mismatch_statement_df = safe_column_select(mismatch_statement_df, REQUIRED_COLUMNS)
+
 
             logger.info("Vendor ledger reconciliation completed successfully.")
 
             # Return results
-            if (
-                not_in_ledger_df.empty
-                and mismatch_statement_df.empty
-                and mismatch_ledger_df.empty
-            ):
+            if not_in_ledger_df.empty and mismatch_statement_df.empty and mismatch_ledger_df.empty:
                 return {
                     "message": "There is no Groupla Doopu..!🎉",
                     "matching_trans": matching_Trans_df,
@@ -203,6 +173,10 @@ def vendorexcel_reconciliation(
                 }
 
         elif service_name in ["AEPS"]:
+            """
+            AEPS Service Block
+            - Compares settled IDs, handles commission matches, and amount mismatches.
+            """
             # Normalize column names
             statement_df.columns = statement_df.columns.str.strip().str.upper()
             ledger_df.columns = ledger_df.columns.str.strip().str.upper()
@@ -407,6 +381,10 @@ def vendorexcel_reconciliation(
                     "ledger_credit_count": credit_count,
                 }
         elif service_name in ["MATM"]:
+            """
+            MATM Service Block
+            - Cleans RRN/amount columns, matches transactions, and finds mismatches.
+            """
             statement_df.columns = statement_df.columns.str.strip().str.upper()
             ledger_df.columns = ledger_df.columns.str.strip().str.upper()
             statement_df["AMOUNT"] = (
@@ -540,6 +518,10 @@ def vendorexcel_reconciliation(
                     "amount_mismatch": amount_mismatch_rows,
                 }
         elif service_name in ["BBPS"]:
+            """
+            BBPS Service Block
+            - Standardizes columns, matches transactions, and finds mismatches.
+            """
             # Rename columns for consistency
             ledger_df = ledger_df.rename(
                 columns={"Chq / Ref No.": "TRANS_REF_ID_LGR", "Debit": "AMOUNT_LEDGER"}
@@ -708,6 +690,10 @@ def vendorexcel_reconciliation(
                     "credit_transactions_ledger": credit_trans,
                 }
         elif service_name in ["LIC"]:
+            """
+            LIC Service Block
+            - Standardizes columns, matches on TID and amount, and handles commission matching.
+            """
             # === Standardize columns and read IDs as strings ===
             statement_df = pd.read_excel(
                 vendor_statement, dtype={"IMWTID": str, "AMOUNT": str}
@@ -908,6 +894,10 @@ def vendorexcel_reconciliation(
 
             return result_data
         elif service_name in ["PANUTI"]:
+            """
+            PANUTI Service Block
+            - Cleans and matches reference numbers, handles failed rows, and finds unmatched records.
+            """
             statement_df.columns = statement_df.columns.str.strip().str.upper()
             ledger_df.columns = ledger_df.columns.str.strip().str.upper()
             statement_df = statement_df.rename(
@@ -992,6 +982,10 @@ def vendorexcel_reconciliation(
 
             return result_data
         elif service_name in ["ABHIBUS"]:
+            """
+            ABHIBUS Service Block
+            - Calculates final amounts, groups by date, and flags matches/mismatches.
+            """
             statement_df.columns = statement_df.columns.str.strip().str.upper()
             ledger_df.columns = ledger_df.columns.str.strip().str.upper()
 
