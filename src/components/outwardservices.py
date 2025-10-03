@@ -111,9 +111,9 @@ def get_ebo_wallet_data(start_date, end_date):
             JOIN tenantinetcsc.EboWalletTransaction ewt
                 ON mt2.TenantMasterTransactionId = ewt.MasterTransactionsId
             WHERE mt2.CreationTs >= CONCAT(:start_date, ' 00:00:00')
-            AND mt2.CreationTs <  CONCAT(:end_date, ' 00:00:00')
+            AND mt2.CreationTs <=  CONCAT(:end_date, ' 00:00:00')
             AND ewt.CreationTs >= CONCAT(:start_date, ' 00:00:00')
-            AND ewt.CreationTs <  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
+            AND ewt.CreationTs <=  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
             GROUP BY mt2.TransactionRefNum, ewt.MasterTransactionsId
 
             UNION
@@ -139,9 +139,9 @@ def get_ebo_wallet_data(start_date, end_date):
             JOIN tenantinetcsc.EboWalletTransaction ewt
                 ON mt2.TransactionRefNum = ewt.IHubReferenceId
             WHERE mt2.CreationTs >= CONCAT(:start_date, ' 00:00:00')
-            AND mt2.CreationTs <  CONCAT(:end_date, ' 00:00:00')
+            AND mt2.CreationTs <=  CONCAT(:end_date, ' 00:00:00')
             AND ewt.CreationTs >= CONCAT(:start_date, ' 00:00:00')
-            AND ewt.CreationTs <  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
+            AND ewt.CreationTs <=  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
             GROUP BY mt2.TransactionRefNum, ewt.MasterTransactionsId)as Finall
         GROUP BY Finall.IHubReferenceId
         """
