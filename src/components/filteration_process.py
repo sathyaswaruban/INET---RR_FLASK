@@ -238,7 +238,14 @@ def unified_filtering_data(
         # # Rename STATUS to VENDOR_STATUS in Excel if needed
         # if "STATUS" in df_excel.columns and status_column_excel == "VENDOR_STATUS":
         #     df_excel = df_excel.rename(columns={"STATUS": "VENDOR_STATUS"})
-
+        Hub_initiated_count = df_db[df_db[status_column_db].astype(str).str.lower().isin(["initiated", "inprogress"])].shape[0]        
+        Hub_success_count = df_db[df_db[status_column_db].astype(str).str.lower() == "success"].shape[0]
+        Hub_failed_count = df_db[df_db[status_column_db].astype(str).str.lower() == "failed"].shape[0]
+        Vendor_success_count = df_excel[df_excel[status_column_excel].astype(str).str.lower() == "success"].shape[0]
+        Vendor_failed_count = df_excel[df_excel[status_column_excel].astype(str).str.lower() == "failed"].shape[0]
+        Vendor_timeout_count = df_excel[df_excel[status_column_excel].astype(str).str.lower() == "timed out"].shape[0]
+        print(f"Hub_initiated_count: {Hub_initiated_count}, Hub_success_count: {Hub_success_count}, Hub_failed_count: {Hub_failed_count}")
+        print(f"Vendor_success_count: {Vendor_success_count}, Vendor_failed_count: {Vendor_failed_count}, Vendor_timeout_count: {Vendor_timeout_count}")
         # Helper for column selection
         def safe_column_select(df, columns):
             existing_cols = [col for col in columns if col in df.columns]
@@ -327,10 +334,8 @@ def unified_filtering_data(
                     .isin(["failed", "timed out"])
                 )
                 & (matched[status_column_db].astype(str).str.lower() == "failed")
-                & (
-                    (matched[ledger_status_col].astype(str).str.lower() == "no")
-                    | (matched["TRANSACTION_CREDIT"].astype(str).str.lower() == "no")
-                ),
+                & 
+                    (matched[ledger_status_col].astype(str).str.lower() == "no"),
                 "IHUB_FAIL_VEND_FAIL-NIL",
             ),
             "ihub_initiate_vend_succes_not_in_ledger": scenario_df(
@@ -440,11 +445,13 @@ def unified_filtering_data(
             (matched[status_column_db].astype(str).str.lower() == "success")
             & (matched[status_column_excel].astype(str).str.lower() == "success")
         ]
+
         success_count = matched_success_status.shape[0]
         matched_failed_status = matched[
             (matched[status_column_db].astype(str).str.lower() == "failed")
-            & (matched[status_column_excel].astype(str).str.lower() == "failed")
+            & (matched[status_column_excel].astype(str).str.lower().isin(["failed","timed out"]))
         ]
+
         failed_count = matched_failed_status.shape[0]
         # Align and combine
         combine_keys = [
@@ -484,6 +491,12 @@ def unified_filtering_data(
                 "HUB_Value_count": Hub_count,
                 "VEND_IHUB_SUC": scenarios["vend_ihub_succ"],
                 "VEND_IHUB_FAIL": scenarios["vend_ihub_fail"],
+                "Hub_initiated_count": Hub_initiated_count,
+                "Hub_success_count": Hub_success_count,
+                "Hub_failed_count": Hub_failed_count,
+                "Vendor_success_count": Vendor_success_count,
+                "Vendor_failed_count": Vendor_failed_count,
+                "Vendor_timeout_count": Vendor_timeout_count,
             }
         else:
             log("Filteration Ends")
@@ -516,6 +529,12 @@ def unified_filtering_data(
                 "Total_Failed_count": failed_count,
                 "Excel_value_count": Excel_count,
                 "HUB_Value_count": Hub_count,
+                "Hub_initiated_count": Hub_initiated_count,
+                "Hub_success_count": Hub_success_count,
+                "Hub_failed_count": Hub_failed_count,
+                "Vendor_success_count": Vendor_success_count,
+                "Vendor_failed_count": Vendor_failed_count,
+                "Vendor_timeout_count": Vendor_timeout_count,
             }
         return mapping
     except Exception as e:

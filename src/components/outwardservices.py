@@ -76,7 +76,7 @@ def getServiceId(MasterServiceId, MasterVendorId):
     return result
 
 
-def get_ebo_wallet_data(start_date, end_date):
+def get_ebo_wallet_data(start_date, end_date,db_service_name):
     logger.info("Fetching Data from EBO Wallet Transaction")
     ebo_df = None
 
@@ -111,10 +111,11 @@ def get_ebo_wallet_data(start_date, end_date):
             JOIN tenantinetcsc.EboWalletTransaction ewt
                 ON mt2.TenantMasterTransactionId = ewt.MasterTransactionsId
             WHERE mt2.CreationTs >= CONCAT(:start_date, ' 00:00:00')
-            AND mt2.CreationTs <=  CONCAT(:end_date, ' 00:00:00')
+            AND mt2.CreationTs <  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 1 DAY)
             AND ewt.CreationTs >= CONCAT(:start_date, ' 00:00:00')
             AND ewt.CreationTs <=  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
-            GROUP BY mt2.TransactionRefNum, ewt.MasterTransactionsId
+            AND ewt.ServiceName LIKE :db_service_name
+            GROUP BY ewt.MasterTransactionsId
 
             UNION
 
@@ -139,10 +140,11 @@ def get_ebo_wallet_data(start_date, end_date):
             JOIN tenantinetcsc.EboWalletTransaction ewt
                 ON mt2.TransactionRefNum = ewt.IHubReferenceId
             WHERE mt2.CreationTs >= CONCAT(:start_date, ' 00:00:00')
-            AND mt2.CreationTs <=  CONCAT(:end_date, ' 00:00:00')
+            AND mt2.CreationTs <  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 1 DAY)
             AND ewt.CreationTs >= CONCAT(:start_date, ' 00:00:00')
             AND ewt.CreationTs <=  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
-            GROUP BY mt2.TransactionRefNum, ewt.MasterTransactionsId)as Finall
+            AND ewt.ServiceName LIKE :db_service_name
+            GROUP BY mt2.TransactionRefNum)as Finall
         GROUP BY Finall.IHubReferenceId
         """
     )
@@ -150,7 +152,7 @@ def get_ebo_wallet_data(start_date, end_date):
     try:
         # Execute query with retry
         ebo_df = execute_sql_with_retry(
-            query, params={"start_date": start_date, "end_date": end_date}
+            query, params={"start_date": start_date, "end_date": end_date,"db_service_name": db_service_name}
         )
 
         if ebo_df.empty:
@@ -264,7 +266,7 @@ def recharge_Service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name,get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Database error in recharge_Service(): {e}")
     except Exception as e:
@@ -367,7 +369,7 @@ def Bbps_service(start_date, end_date, service_name):
         )
         core_df = map_tenant_id_column(core_df)
         result = merge_ebo_wallet_data(
-            core_df, start_date, end_date, get_ebo_wallet_data
+            core_df, start_date, end_date, service_name, get_ebo_wallet_data
         )
     except SQLAlchemyError as e:
         logger.error(f"Databasr error in BBPS_SERVICE():{e}")
@@ -435,7 +437,7 @@ def Panuti_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Databasr error in PAN_UTI_SERVICE():{e}")
     except Exception as e:
@@ -508,7 +510,7 @@ def dmt_Service(start_date, end_date, service_name):
         )
         df_db = map_tenant_id_column(df_db)
 
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Databasr error in DMT_SERVICE():{e}")
     except Exception as e:
@@ -582,7 +584,7 @@ def Pannsdl_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Databasr error in PAN_NSDL_SERVICE():{e}")
     except Exception as e:
@@ -653,7 +655,7 @@ def passport_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Database error in Passport_service(): {e}")
     except Exception as e:
@@ -728,7 +730,7 @@ def lic_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Database error in recharge_Service(): {e}")
     except Exception as e:
@@ -798,7 +800,7 @@ def astro_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
 
     except SQLAlchemyError as e:
         logger.error(f"Database error in ASTRO_Service(): {e}")
@@ -876,7 +878,7 @@ def insurance_offline_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Database error in insurance_offline_service(): {e}")
     except Exception as e:
@@ -948,7 +950,7 @@ def abhibus_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Database error in abhibus_service(): {e}")
     except Exception as e:
@@ -1013,7 +1015,7 @@ def moveToBank_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Database error in moveToBank_service(): {e}")
     except Exception as e:
@@ -1084,7 +1086,7 @@ def manualTB_sevice(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
     except SQLAlchemyError as e:
         logger.error(f"Database error in manualTB_service(): {e}")
     except Exception as e:

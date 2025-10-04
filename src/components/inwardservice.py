@@ -16,6 +16,7 @@ from components.recon_utils import (
     map_tenant_id_column,
     merge_ebo_wallet_data,
 )
+from components.outwardservices import get_ebo_wallet_data
 
 engine = get_db_connection()
 
@@ -38,50 +39,6 @@ def execute_sql_with_retry(query, params=None):
         except Exception as e:
             logger.error(f"Error during SQL execution: {e}")
             raise
-
-
-# Ebo Wallet Amount and commission  Debit credit check function  -------------------------------------------
-def get_ebo_wallet_data(start_date, end_date):
-    logger.info("Fetching Data from EBO Wallet Transaction")
-    ebo_df = None
-    query = text(
-        """
-    SELECT  
-    ewt.IHubReferenceId,
-    COALESCE(MAX(CASE WHEN ewt.Description = 'Transaction - Credit' THEN 'Yes' END), 'No') AS TRANSACTION_CREDIT,
-    COALESCE(MAX(CASE WHEN ewt.Description = 'Transaction - Debit' THEN 'Yes' END), 'No') AS TRANSACTION_DEBIT,
-    COALESCE(MAX(CASE WHEN ewt.Description = 'Commission Added' THEN 'Yes' END), 'No') AS COMMISSION_CREDIT,
-    COALESCE(MAX(CASE WHEN ewt.Description = 'Commission - Reversal' THEN 'Yes' END), 'No') AS COMMISSION_REVERSAL
-    FROM
-        ihubcore.MasterTransaction mt2
-    JOIN tenantinetcsc.MasterTransaction mt 
-        ON mt.TransactionRefNumIHub = mt2.TransactionRefNum
-    JOIN tenantinetcsc.EboWalletTransaction ewt 
-        ON mt.Id = ewt.MasterTransactionsId
-    WHERE
-        DATE(mt2.CreationTs) BETWEEN :start_date AND :end_date AND
-        DATE(mt.CreationTs) BETWEEN :start_date AND :end_date 
-        AND ewt.IHubReferenceId IS NOT NULL
-        AND ewt.IHubReferenceId <> ''
-    GROUP BY 
-        ewt.IHubReferenceId
-    """
-    )
-    # hi
-    try:
-        # Call the retry-enabled query executor
-        ebo_df = execute_sql_with_retry(
-            query, params={"start_date": start_date, "end_date": end_date}
-        )
-        if ebo_df.empty:
-            logger.warning("No data returned from EBO Wallet table.")
-    except SQLAlchemyError as e:
-        logger.error(f"Database error in EBO Wallet Query: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error in EBO Wallet Query Execution: {e}")
-
-    return ebo_df
-
 
 # ----------------------------------------------------------------------------------
 # Aeps function
@@ -197,7 +154,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
         # Tenant ID mapping
         df_db = map_tenant_id_column(df_db, "TENANT_ID")
         # Merge with EBO Wallet data
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
 
     except SQLAlchemyError as e:
         logger.error(f"Database error in aeps_Service(): {e}")
@@ -281,7 +238,7 @@ def matm_Service(start_date, end_date, service_name):
         # Tenant ID mapping
         df_db = map_tenant_id_column(df_db, "TENANT_ID")
         # Merge with EBO Wallet data
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
 
     except SQLAlchemyError as e:
         logger.error(f"Database error in Matm_Service(): {e}")

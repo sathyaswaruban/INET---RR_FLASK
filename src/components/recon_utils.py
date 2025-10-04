@@ -5,6 +5,24 @@ recon_utils.py - Shared reconciliation helper functions for DRY, maintainable co
 import pandas as pd
 from logger_config import logger
 
+DB_SERVICE_NAME_CONFIG = {
+    "ASTRO": {"Db_service_name": "%Astrology%"},
+    "ABHIBUS": {"Db_service_name": "%BusBooking%"},
+    "BBPS": {"Db_service_name": "%BillPayment%"},
+    "DMT": {"Db_service_name": "%Money Transfer%"},
+    "INSURANCE_OFFLINE": {"Db_service_name": "%Insurance%"},
+    "LIC": {"Db_service_name": "LIC"},
+    "MANUAL_TB": {"Db_service_name": "%Manual%"},
+    "MATM": {"Db_service_name": "%M-ATM%"},
+    "MOVETOBANK": {"Db_service_name": "%MoveToBank%"},
+    "RECHARGE": {"Db_service_name": "%All - Recharge%"},
+    "AEPS": {"Db_service_name": "%AEPS%"},
+    "PANUTI": {"Db_service_name": "%PAN-UTI%"},
+    "PANNSDL": {"Db_service_name": "%Pan Internal%"},
+    "PASSPORT": {"Db_service_name": "%Passport%"},
+    "UPIQR": {"Db_service_name": "%UPI/QR%"},
+}
+
 
 def map_status_column(
     df: pd.DataFrame,
@@ -35,10 +53,15 @@ def map_tenant_id_column(
         )
     return df
 
+
 def merge_ebo_wallet_data(
-    df: pd.DataFrame, start_date, end_date, get_ebo_wallet_data_func
+    df: pd.DataFrame, start_date, end_date, service_name, get_ebo_wallet_data_func
 ) -> pd.DataFrame:
-    ebo_result = get_ebo_wallet_data_func(start_date, end_date)
+    db_service_name = DB_SERVICE_NAME_CONFIG[service_name]
+    # print(db_service_name["Db_service_name"])
+    ebo_result = get_ebo_wallet_data_func(
+        start_date, end_date, db_service_name["Db_service_name"]
+    )
     if ebo_result is not None and not ebo_result.empty:
         return pd.merge(
             df,
