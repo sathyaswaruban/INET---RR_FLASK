@@ -220,7 +220,7 @@ def recharge_Service(start_date, end_date, service_name):
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                sn.CreationTs AS SERVICE_DATE, 
                sn.rechargeStatus AS service_status,
-               sn.Amount as RECHARGE_AMOUNT,
+               sn.Amount as HUB_AMOUNT,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'
@@ -287,7 +287,7 @@ def Bbps_service(start_date, end_date, service_name):
         mt2.TransactionRefNum as IHUB_REFERENCE,
         mt2.CreationUserId as IHUB_USERNAME,
         bbp.TxnRefId as VENDOR_REFERENCE,
-        bbp.Amount as AMOUNT,
+        bbp.Amount as HUB_AMOUNT,
         bbp.creationTs as SERVICE_DATE,
         mt2.TransactionStatus AS IHUB_MASTER_STATUS,
         mt2.tenantDetailID as TENANT_ID,
@@ -394,7 +394,7 @@ def Panuti_service(start_date, end_date, service_name):
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                u2.CreationTs  AS SERVICE_DATE, 
                u2.TransactionStatusType AS service_status,
-               u2.TransactionAmount  as AMOUNT,
+               u2.TransactionAmount  as HUB_AMOUNT,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'
@@ -457,6 +457,9 @@ def dmt_Service(start_date, end_date, service_name):
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
             pst.PaySprintTransStatus as service_status,
+            pst.Amount as HUB_AMOUNT,
+            pst.CreationTs AS SERVICE_DATE,
+            mt2.TenantDetailId as TENANT_ID,
             CASE
             WHEN a.IHubReferenceId  IS NOT NULL THEN 'Yes'
             ELSE 'No'
@@ -533,7 +536,7 @@ def Pannsdl_service(start_date, end_date, service_name):
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                DATE(pit.CreationTs)  AS SERVICE_DATE, 
                pit.ApplicationStatus AS service_status,
-               pit.Amount as AMOUNT,
+               pit.Amount as HUB_AMOUNT,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'
@@ -677,7 +680,7 @@ def lic_service(start_date, end_date, service_name):
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT, 
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                lpt.CreationTs AS SERVICE_DATE,
-               lpf.Billedamount as LIC_AMOUNT, 
+               lpf.Billedamount as HUB_AMOUNT, 
                lpt.BillPayStatus AS service_status,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
@@ -750,7 +753,8 @@ def astro_service(start_date, end_date, service_name):
                mt2.TenantDetailId as TENANT_ID,   
                at2.OrderId AS VENDOR_REFERENCE,
                mt2.CreationUserId as IHUB_USERNAME,
-                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT, 
+               mst.TranAmountTotal as HUB_AMOUNT,
+               mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT, 
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
                at2.CreationTs AS SERVICE_DATE, 
                at2.AstroTransactionStatus AS service_status,
@@ -901,7 +905,7 @@ def abhibus_service(start_date, end_date, service_name):
             mt.TenantDetailId AS TENANT_ID,
             abt.CreationTs AS SERVICE_DATE,
             abt.TicketStatusType  AS service_status,
-            abt.TotalAmount  AS AMOUNT,
+            abt.TotalAmount AS HUB_AMOUNT,
             CASE 
                 WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
                 ELSE 'No'
@@ -956,7 +960,7 @@ def abhibus_service(start_date, end_date, service_name):
     except Exception as e:
         logger.error(f"Unexpected error in abhibus_service(): {e}")
     return result
-
+# -----------------------------------------------------------------------------------------------------------------------
 
 def moveToBank_service(start_date, end_date, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
@@ -969,7 +973,7 @@ def moveToBank_service(start_date, end_date, service_name):
                mt.TransactionStatus AS IHUB_MASTER_STATUS,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                mt.CreationTs AS SERVICE_DATE,
-               amt.TxnAmount AS AMOUNT,amt.TransactionStatus as service_status ,amt.requestUUID as VENDOR_REFERENCE,
+               amt.TxnAmount AS HUB_AMOUNT,amt.TransactionStatus as service_status ,amt.requestUUID as VENDOR_REFERENCE,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'
@@ -1037,7 +1041,7 @@ def manualTB_sevice(start_date, end_date, service_name):
                mt.TransactionStatus AS IHUB_MASTER_STATUS,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                mt.CreationTs AS SERVICE_DATE,
-               amt.TxnAmount AS AMOUNT,amt.TransactionStatus as service_status ,amt.requestUUID as VENDOR_REFERENCE,
+               amt.TxnAmount AS HUB_AMOUNT,amt.TransactionStatus as service_status ,amt.requestUUID as VENDOR_REFERENCE,
                CASE
                    WHEN iwt.IHubReferenceId IS NOT NULL THEN 'Yes'
                    ELSE 'No'

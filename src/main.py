@@ -4,6 +4,7 @@ from logger_config import logger
 from components.upiQrfiltering import upiQr_service_selection
 from components.upservices import up_service_selection
 from components.iti_imps import imps_service_function
+
 # Define service configurations as constants
 SERVICE_CONFIGS = {
     "BBPS": {
@@ -11,6 +12,7 @@ SERVICE_CONFIGS = {
             "Transaction Date": "VENDOR_DATE",
             "Transaction Ref ID": "REFID",
             "NPCI Transaction Desc": "VENDOR_STATUS",
+            "Transaction Amount(RS.)": "VENDOR_AMOUNT",
         },
         "required_columns": ["Transaction Ref ID"],
         "date_format": "%d-%b-%Y %H:%M:%S",
@@ -20,7 +22,7 @@ SERVICE_CONFIGS = {
             "Ref No": "REFID",
             "Txn Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
-            "        Debit": "AMOUNT",
+            "        Debit": "VENDOR_AMOUNT",
         },
         "required_columns": ["Ref No"],
     },
@@ -29,6 +31,7 @@ SERVICE_CONFIGS = {
             "SERIALNUMBER": "REFID",
             "DATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
+            "AMOUNT": "VENDOR_AMOUNT",
         },
         "columnsmini": {
             "SERIALNUMBER": "REFID",
@@ -38,22 +41,28 @@ SERVICE_CONFIGS = {
         "required_columns": ["SERIALNUMBER"],
     },
     "RECHARGE": {
-        "columns": {"DATE": "VENDOR_DATE", "STATUS": "VENDOR_STATUS"},
+        "columns": {
+            "DATE": "VENDOR_DATE",
+            "STATUS": "VENDOR_STATUS",
+            "AMOUNT": "VENDOR_AMOUNT",
+        },
         "required_columns": ["REFID"],
     },
     "PANUTI": {
         "columns": {
-            "Refrence No": "REFID",
+            "Reference No": "REFID",
             "trans Date": "VENDOR_DATE",
             "Payment Status": "VENDOR_STATUS",
+            "Res Amount": "VENDOR_AMOUNT",
         },
-        "required_columns": ["Refrence No"],
+        "required_columns": ["Reference No"],
     },
     "PANNSDL": {
         "columns": {
             "Acknowledgment Number": "REFID",
             "Date": "VENDOR_DATE",
             "Status Of Application": "VENDOR_STATUS",
+            "Appln Fee (`)": "VENDOR_AMOUNT",
         },
         "required_columns": ["Acknowledgment Number"],
     },
@@ -62,6 +71,7 @@ SERVICE_CONFIGS = {
             "Date": "VENDOR_DATE",
             "TRANSACTIONSTATUS": "VENDOR_STATUS",
             "RRN": "REFID",
+            "AMOUNT": "VENDOR_AMOUNT",
         },
         "required_columns": ["RRN"],
     },
@@ -70,6 +80,7 @@ SERVICE_CONFIGS = {
             "ORDERID": "REFID",
             "Date": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
+            "AMOUNT": "VENDOR_AMOUNT",
         },
         "required_columns": ["ORDERID"],
     },
@@ -78,7 +89,7 @@ SERVICE_CONFIGS = {
             "Order ID": "REFID",
             "Date": "VENDOR_DATE",
             "Transaction Status": "VENDOR_STATUS",
-            "Price": "AMOUNT",
+            "Price": "VENDOR_AMOUNT",
         },
         "required_columns": ["Order ID"],
     },
@@ -87,6 +98,7 @@ SERVICE_CONFIGS = {
             "Unique_ID": "REFID",
             "ATHRSD_DATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
+            "Settled_Amount": "VENDOR_AMOUNT",
         },
         "day_first": True,
         "required_columns": ["Unique_ID"],
@@ -95,6 +107,7 @@ SERVICE_CONFIGS = {
         "columns": {
             "DATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
+            "AMOUNT": "VENDOR_AMOUNT",
         },
         "required_columns": ["REFID"],
     },
@@ -103,7 +116,7 @@ SERVICE_CONFIGS = {
             "Issued Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
             "Policy No": "REFID",
-            "Total Amount": "AMOUNT",
+            "Total Amount": "VENDOR_AMOUNT",
         },
         "required_columns": ["Policy No"],
     },
@@ -112,6 +125,7 @@ SERVICE_CONFIGS = {
             "Tkt. Number": "REFID",
             "Booked Date": "VENDOR_DATE",
             "Status": "VENDOR_STATUS",
+            "Ticket Amount": "VENDOR_AMOUNT",
         },
         "required_columns": ["Tkt. Number"],
     },
@@ -153,6 +167,7 @@ SERVICE_CONFIGS = {
             "Corporate Ref No": "REFID",
             "Transaction Status": "VENDOR_STATUS",
             "Creation Date": "VENDOR_DATE",
+            "Transaction Amount": "VENDOR_AMOUNT",
         },
         "required_columns": ["Corporate Ref No"],
         # "date_format": "%d-%m-%Y %H:%M:%S",
@@ -217,7 +232,7 @@ def select_service_handler(
         return up_service_selection(from_date, to_date, service_name, df_excel)
     elif service_name == "IMPS":
         logger.info(f"Ihub service: {service_name}")
-        return imps_service_function(from_date, to_date, service_name,df_excel)
+        return imps_service_function(from_date, to_date, service_name, df_excel)
     else:
         logger.info(f"Ihub service: {service_name}")
         return service_selection(

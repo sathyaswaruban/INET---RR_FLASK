@@ -196,7 +196,7 @@ def vendorexcel_reconciliation(
                 and mismatch_ledger_df.empty
             ):
                 return {
-                    "message": "There is no Groupla Doopu..!🎉",
+                    "message": "No Mismatch...",
                     "matching_trans": matching_Trans_df,
                     "matching_refunds": matching_refunds_df,
                     "ledger_count": ledger_count,
@@ -407,7 +407,7 @@ def vendorexcel_reconciliation(
                 and amount_mismatch_rows.empty
             ):
                 return {
-                    "message": "There is no Groupla Doopu..!🎉",
+                    "message": "No Mismatch......",
                     "matching_trans": commission_merged,
                     "ledger_count": ledger_count,
                     "statement_count": statement_count,
@@ -542,7 +542,7 @@ def vendorexcel_reconciliation(
                 and amount_mismatch_rows.empty
             ):
                 return {
-                    "message": "There is no Groupla Doopu..!🎉",
+                    "message": "No Mismatch...",
                     "matching_trans": merged_df,
                     "ledger_count": ledger_count,
                     "statement_count": statement_count,
@@ -713,7 +713,7 @@ def vendorexcel_reconciliation(
                 and credit_trans.empty
             ):
                 return {
-                    "message": "There is no Groupla Doopu..!🎉",
+                    "message": "No Mismatch...",
                     "matching_trans": merged_df,
                     "ledger_count": ledger_count,
                     "statement_count": statement_count,
@@ -936,7 +936,7 @@ def vendorexcel_reconciliation(
                     }
                 )
             else:
-                result_data["message"] = "There is no Groupla Doopu..!🎉"
+                result_data["message"] = "No Mismatch..."
 
             return result_data
         elif service_name in ["PANUTI"]:
@@ -1024,7 +1024,7 @@ def vendorexcel_reconciliation(
                     }
                 )
             else:
-                result_data["message"] = "There is no Groupla Doopu..!🎉"
+                result_data["message"] = "No Mismatch..."
 
             return result_data
         elif service_name in ["ABHIBUS"]:
@@ -1148,7 +1148,7 @@ def vendorexcel_reconciliation(
                     }
                 )
             else:
-                result_data["message"] = "There is no Groupla Doopu..!🎉"
+                result_data["message"] = "No Mismatch..."
             return result_data
 
         else:

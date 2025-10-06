@@ -19,10 +19,7 @@ from components.outwardservices import (
 )
 from components.inwardservice import matm_Service, aeps_Service
 
-# -----------------------------------------------------------------------------
 # Service configuration constants
-
-
 SERVICE_CONFIGS = {
     "RECHARGE": {"required_columns": ["REFID"], "service_func": recharge_Service},
     "BBPS": {
@@ -185,7 +182,6 @@ def unified_filtering_data(
     status_column_db="IHUB_MASTER_STATUS",
     status_column_excel="VENDOR_STATUS",
     required_columns=None,
-    amount_column_map=None,
     extra_scenarios=None,
     ledger_status_col="IHUB_LEDGER_STATUS",
     bill_fetch_col=None,
@@ -210,6 +206,7 @@ def unified_filtering_data(
         df_excel[status_column_excel] = (
             df_excel[status_column_excel].astype(str).str.strip()
         )
+        df_excel["VENDOR_AMOUNT"] = (df_excel["VENDOR_AMOUNT"].astype(float))
         # Preprocess dates
         if "VENDOR_DATE" in df_excel.columns:
             df_excel["VENDOR_DATE"] = pd.to_datetime(
@@ -221,11 +218,11 @@ def unified_filtering_data(
             ).dt.strftime("%Y-%m-%d")
         # Map DB status if mapping provided
         if status_mapping_db and status_column_db in df_db.columns:
-                df_db[status_column_db] = (
+            df_db[status_column_db] = (
                 df_db[status_column_db]
                 .map(status_mapping_db)
                 .fillna(df_db[status_column_db])
-                )
+            )
 
         # Map Excel status if mapping provided
         if status_mapping_excel and status_column_excel in df_excel.columns:
@@ -235,17 +232,28 @@ def unified_filtering_data(
                 .fillna(df_excel[status_column_excel])
             )
 
-        # # Rename STATUS to VENDOR_STATUS in Excel if needed
-        # if "STATUS" in df_excel.columns and status_column_excel == "VENDOR_STATUS":
-        #     df_excel = df_excel.rename(columns={"STATUS": "VENDOR_STATUS"})
-        Hub_initiated_count = df_db[df_db[status_column_db].astype(str).str.lower().isin(["initiated", "inprogress"])].shape[0]        
-        Hub_success_count = df_db[df_db[status_column_db].astype(str).str.lower() == "success"].shape[0]
-        Hub_failed_count = df_db[df_db[status_column_db].astype(str).str.lower() == "failed"].shape[0]
-        Vendor_success_count = df_excel[df_excel[status_column_excel].astype(str).str.lower() == "success"].shape[0]
-        Vendor_failed_count = df_excel[df_excel[status_column_excel].astype(str).str.lower() == "failed"].shape[0]
-        Vendor_timeout_count = df_excel[df_excel[status_column_excel].astype(str).str.lower() == "timed out"].shape[0]
-        print(f"Hub_initiated_count: {Hub_initiated_count}, Hub_success_count: {Hub_success_count}, Hub_failed_count: {Hub_failed_count}")
-        print(f"Vendor_success_count: {Vendor_success_count}, Vendor_failed_count: {Vendor_failed_count}, Vendor_timeout_count: {Vendor_timeout_count}")
+        Hub_initiated_count = df_db[
+            df_db[status_column_db]
+            .astype(str)
+            .str.lower()
+            .isin(["initiated", "inprogress"])
+        ].shape[0]
+        Hub_success_count = df_db[
+            df_db[status_column_db].astype(str).str.lower() == "success"
+        ].shape[0]
+        Hub_failed_count = df_db[
+            df_db[status_column_db].astype(str).str.lower() == "failed"
+        ].shape[0]
+        Vendor_success_count = df_excel[
+            df_excel[status_column_excel].astype(str).str.lower() == "success"
+        ].shape[0]
+        Vendor_failed_count = df_excel[
+            df_excel[status_column_excel].astype(str).str.lower() == "failed"
+        ].shape[0]
+        Vendor_timeout_count = df_excel[
+            df_excel[status_column_excel].astype(str).str.lower() == "timed out"
+        ].shape[0]
+
         # Helper for column selection
         def safe_column_select(df, columns):
             existing_cols = [col for col in columns if col in df.columns]
@@ -261,29 +269,20 @@ def unified_filtering_data(
 
         not_in_vendor["CATEGORY"] = "NOT_IN_VENDOR"
         not_in_vendor = not_in_vendor.rename(columns={"VENDOR_REFERENCE": "REFID"})
-        if amount_column_map and service_name in amount_column_map:
-            not_in_vendor = not_in_vendor.rename(
-                columns={amount_column_map[service_name]: "AMOUNT"}
-            )
+
         not_in_vendor = safe_column_select(not_in_vendor, required_columns)
         # Handle amount column renaming for not_in_portal
         not_in_portal = df_excel[
             ~df_excel["REFID"].isin(df_db["VENDOR_REFERENCE"])
         ].copy()
         not_in_portal["CATEGORY"] = "NOT_IN_PORTAL"
-        if amount_column_map and service_name in amount_column_map:
-            not_in_portal = not_in_portal.rename(
-                columns={amount_column_map[service_name]: "AMOUNT"}
-            )
         not_in_portal = safe_column_select(not_in_portal, required_columns)
-        # print(not_in_portal["COMMISSION_AMOUNT"])
         # Matched
         matched = df_db.merge(
             df_excel, left_on="VENDOR_REFERENCE", right_on="REFID", how="inner"
         ).copy()
         matched["CATEGORY"] = "MATCHED"
         matched = safe_column_select(matched, required_columns)
-        # print(matched[matched['IHUB_LEDGER_STATUS'] == 'No'])
         # Mismatched
         mismatched = matched[
             matched[status_column_db].astype(str).str.lower()
@@ -334,8 +333,7 @@ def unified_filtering_data(
                     .isin(["failed", "timed out"])
                 )
                 & (matched[status_column_db].astype(str).str.lower() == "failed")
-                & 
-                    (matched[ledger_status_col].astype(str).str.lower() == "no"),
+                & (matched[ledger_status_col].astype(str).str.lower() == "no"),
                 "IHUB_FAIL_VEND_FAIL-NIL",
             ),
             "ihub_initiate_vend_succes_not_in_ledger": scenario_df(
@@ -435,10 +433,6 @@ def unified_filtering_data(
                 "VEND_FAIL_IHUB_INT",
             ),
         }
-        # Add extra scenarios if provided
-        # if extra_scenarios:
-        #     for k, v in extra_scenarios.items():
-        #         scenarios[k] = v(matched, safe_column_select, required_columns)
 
         # Success/failure counts
         matched_success_status = matched[
@@ -449,10 +443,16 @@ def unified_filtering_data(
         success_count = matched_success_status.shape[0]
         matched_failed_status = matched[
             (matched[status_column_db].astype(str).str.lower() == "failed")
-            & (matched[status_column_excel].astype(str).str.lower().isin(["failed","timed out"]))
+            & (
+                matched[status_column_excel]
+                .astype(str)
+                .str.lower()
+                .isin(["failed", "timed out"])
+            )
         ]
 
         failed_count = matched_failed_status.shape[0]
+
         # Align and combine
         combine_keys = [
             "not_in_vendor",
@@ -541,18 +541,12 @@ def unified_filtering_data(
         logger.error(f"Error in unified_filtering_data: {str(e)}")
 
 
-# DRY Helper Functions are now shared in recon_utils.py
-
-
-# ---------------------------------------------------------------------------------
-
-
 # ---------------------------------------------------------------------------------
 # Filtering Function
 def filtering_Data(df_db, df_excel, service_name):
 
     # Use the unified filtering function with parameters matching the old logic
-    if service_name in ["PASSPORT","INSURANCE_OFFLINE"]:
+    if service_name in ["PASSPORT", "INSURANCE_OFFLINE"]:
         required_columns = [
             "CATEGORY",
             "VENDOR_DATE",
@@ -560,7 +554,7 @@ def filtering_Data(df_db, df_excel, service_name):
             "IHUB_REFERENCE",
             "REFID",
             "IHUB_USERNAME",
-            "AMOUNT",
+            "VENDOR_AMOUNT",
             "HUB_AMOUNT",
             "COMMISSION_AMOUNT",
             "VENDOR_STATUS",
@@ -582,7 +576,8 @@ def filtering_Data(df_db, df_excel, service_name):
             "IHUB_REFERENCE",
             "REFID",
             "IHUB_USERNAME",
-            "AMOUNT",
+            "VENDOR_AMOUNT",
+            "HUB_AMOUNT",
             "COMMISSION_AMOUNT",
             "VENDOR_STATUS",
             "IHUB_MASTER_STATUS",
@@ -596,16 +591,6 @@ def filtering_Data(df_db, df_excel, service_name):
             "COMMISSION_CREDIT",
             "COMMISSION_REVERSAL",
         ]
-    amount_column_map = {
-        "RECHARGE": "RECHARGE_AMOUNT",
-        "LIC": "LIC_AMOUNT",
-        "PANNSDL": "Appln Fee (`)",
-        "BBPS": "Transaction Amount(RS.)",
-        "PANUTI": "Res Amount",
-        "INSURANCE_OFFLINE": "Total Amount",
-        "AEPS": "AEPS_AMOUNT",
-        "MATM": "MATM_AMOUNT",
-    }
     status_mapping_db = {
         0: "initiated",
         1: "success",
@@ -621,9 +606,7 @@ def filtering_Data(df_db, df_excel, service_name):
         status_column_db="IHUB_MASTER_STATUS",
         status_column_excel="VENDOR_STATUS",
         required_columns=required_columns,
-        amount_column_map=amount_column_map,
         ledger_status_col="IHUB_LEDGER_STATUS",
         status_mapping_db=status_mapping_db,
         logger_obj=logger,
     )
-# Ebo Wallet Amount and commission  Debit credit check function  -------------------------------------------

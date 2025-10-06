@@ -57,7 +57,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             pat.CreationTs AS SERVICE_DATE,
             pat.TransStatus AS service_status,
-            pat.Amount AS AEPS_AMOUNT,
+            pat.Amount AS HUB_AMOUNT,
             CASE 
                 WHEN a.IHubReferenceId IS NOT NULL THEN 'Yes'
                 ELSE 'No'
@@ -90,7 +90,7 @@ def aeps_Service(start_date, end_date, service_name, transaction_type):
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             pat.CreationTs AS SERVICE_DATE,
             pat.TransStatus AS service_status,
-            pat.Amount AS AEPS_AMOUNT,
+            pat.Amount AS HUB_AMOUNT,
             CASE
                 WHEN a.IHubReferenceId IS NOT NULL THEN 'Yes'
                 ELSE 'No'
@@ -178,7 +178,7 @@ def matm_Service(start_date, end_date, service_name):
             mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
             mt2.TransactionStatus AS IHUB_MASTER_STATUS,
             iwmt.CreationTs AS SERVICE_DATE,
-            iwmt.Amount AS MATM_AMOUNT,
+            iwmt.Amount AS HUB_AMOUNT,
             iwmt.TransStatusType  AS service_status,
             CASE 
                 WHEN a.IHubReferenceId IS NOT NULL THEN 'Yes'
