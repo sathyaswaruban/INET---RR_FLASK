@@ -95,7 +95,7 @@ SERVICE_CONFIGS = {
     },
     "UPIQR": {
         "columns": {
-            "Unique_ID": "REFID",
+            "TRNSCTN_NMBR": "REFID",
             "ATHRSD_DATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
             "Settled_Amount": "VENDOR_AMOUNT",

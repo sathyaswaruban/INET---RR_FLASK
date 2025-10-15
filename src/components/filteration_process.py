@@ -576,6 +576,7 @@ def filtering_Data(df_db, df_excel, service_name):
             "IHUB_REFERENCE",
             "REFID",
             "IHUB_USERNAME",
+            "BBPS_CATEGORY",
             "VENDOR_AMOUNT",
             "HUB_AMOUNT",
             "COMMISSION_AMOUNT",

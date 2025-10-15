@@ -15,7 +15,7 @@ DB_SERVICE_NAME_CONFIG = {
     "MANUAL_TB": {"Db_service_name": "%Manual%"},
     "MATM": {"Db_service_name": "%M-ATM%"},
     "MOVETOBANK": {"Db_service_name": "%MoveToBank%"},
-    "RECHARGE": {"Db_service_name": "%All - Recharge%"},
+    "RECHARGE": {"Db_service_name": ("All - Recharge","All Recharge")},
     "AEPS": {"Db_service_name": "%AEPS%"},
     "PANUTI": {"Db_service_name": "%PAN-UTI%"},
     "PANNSDL": {"Db_service_name": "%Pan Internal%"},

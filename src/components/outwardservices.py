@@ -287,6 +287,7 @@ def Bbps_service(start_date, end_date, service_name):
         mt2.TransactionRefNum as IHUB_REFERENCE,
         mt2.CreationUserId as IHUB_USERNAME,
         bbp.TxnRefId as VENDOR_REFERENCE,
+        bbd.CategoryName as BBPS_CATEGORY,
         bbp.Amount as HUB_AMOUNT,
         bbp.creationTs as SERVICE_DATE,
         mt2.TransactionStatus AS IHUB_MASTER_STATUS,
@@ -297,6 +298,7 @@ def Bbps_service(start_date, end_date, service_name):
     FROM ihubcore.MasterTransaction mt2
     LEFT JOIN ihubcore.MasterSubTransaction mst ON mst.MasterTransactionId = mt2.Id
     LEFT JOIN ihubcore.BBPS_BillPay bbp ON bbp.MasterSubTransactionId = mst.Id
+    LEFT JOIN ihubcore.BBPS_BillerDetail bbd ON bbd.id = bbp.BBPS_BillerDetailId 
     WHERE DATE(bbp.CreationTs) BETWEEN :start_date AND :end_date
     """
     )
