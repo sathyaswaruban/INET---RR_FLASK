@@ -65,6 +65,7 @@ SERVICE_CONFIGS = {
             "Appln Fee (`)": "VENDOR_AMOUNT",
         },
         "required_columns": ["Acknowledgment Number"],
+        "day_first": True,
     },
     "MATM": {
         "columns": {
@@ -214,6 +215,7 @@ def process_date_columns(df, service_name, service_config):
                 date_params["format"] = service_config["date_format"]
 
             df["VENDOR_DATE"] = pd.to_datetime(df["VENDOR_DATE"], **date_params).dt.date
+
     except Exception as e:
         print(e)
         logger.error("Error in Date_Processing(): %s", str(e))

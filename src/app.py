@@ -25,8 +25,8 @@ CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
 
 # Constants
 REQUIRED_FIELDS = ["from_date", "to_date", "service_name"]
-SUCCESS_MESSAGE = "Data processed successfully!"
-FAILURE_MESSAGE = "Failed to process data"
+SUCCESS_MESSAGE = "Data processed successfully..!"
+FAILURE_MESSAGE = "Failed to process data...! Please try again."
 REQIRED_VENDORLEDGER_FIELDS = ["service_name", "vendor_ledger", "vendor_statement"]
 
 

@@ -1,4 +1,5 @@
 import pandas as pd
+import logging
 from db_connector import get_db_connection
 from logger_config import logger
 from sqlalchemy.exc import SQLAlchemyError
@@ -27,7 +28,7 @@ DB_RETRY_CONFIG = {
     "reraise": True,
 }
 
-
+  
 ####
 @retry(**DB_RETRY_CONFIG)
 def execute_sql_with_retry(query, params=None):
@@ -150,51 +151,60 @@ def get_ebo_wallet_data(start_date, end_date,db_service_name):
     )
 
     try:
+        #---- USE TO PRINT QUERY WHILE DEBUGGING ----
+        # logger.info(f"Executing EBO Wallet Query with parameters: start_date={start_date}, end_date={end_date}, db_service_name={db_service_name}")
+        
+        # # Print formatted query for debugging
+        # formatted_query = query.text.replace(":start_date", f"'{start_date}'") \
+        #                         .replace(":end_date", f"'{end_date}'") \
+        #                         .replace(":db_service_name", f"'{db_service_name}'")
+        
+        # logger.info("=== SQL Query with Parameters ===")
+        # logger.info(formatted_query)
+        # logger.info("=================================")
+
         # Execute query with retry
         ebo_df = execute_sql_with_retry(
-            query, params={"start_date": start_date, "end_date": end_date,"db_service_name": db_service_name}
+            query, params={"start_date": start_date, "end_date": end_date, "db_service_name": db_service_name}
         )
 
         if ebo_df.empty:
             logger.warning("No data returned from EBO Wallet table.")
             return pd.DataFrame()
-
         # =============================
         # Merge multiple NULL-ID rows into proper rows
         # =============================
         null_rows = ebo_df[ebo_df["MasterTransactionsId"].isna()]
         non_null_rows = ebo_df[ebo_df["MasterTransactionsId"].notna()]
 
-        # Columns to merge
-        flag_cols = [
-            "TRANSACTION_CREDIT",
-            "TRANSACTION_DEBIT",
-            "COMMISSION_CREDIT",
-            "COMMISSION_REVERSAL",
-        ]
+        # Only proceed with merging if we have both null and non-null rows
+        if not null_rows.empty and not non_null_rows.empty:
+            flag_cols = [
+                "TRANSACTION_CREDIT",
+                "TRANSACTION_DEBIT", 
+                "COMMISSION_CREDIT",
+                "COMMISSION_REVERSAL",
+            ]
 
-        for hub_id in null_rows["IHubReferenceId"].unique():
-            null_subset = null_rows[null_rows["IHubReferenceId"] == hub_id]
+            for hub_id in null_rows["IHubReferenceId"].unique():
+                null_subset = null_rows[null_rows["IHubReferenceId"] == hub_id]
+                target_index = non_null_rows[non_null_rows["IHubReferenceId"] == hub_id].index
 
-            target_index = non_null_rows[
-                non_null_rows["IHubReferenceId"] == hub_id
-            ].index
+                if not target_index.empty:
+                    for col in flag_cols:
+                        merged_flag = "Yes" if (null_subset[col] == "Yes").any() else "No"
+                        non_null_rows.loc[target_index, col] = non_null_rows.loc[
+                            target_index, col
+                        ].combine(
+                            pd.Series([merged_flag] * len(target_index), index=target_index),
+                            lambda x, y: "Yes" if y == "Yes" else x,
+                        )
 
-            if not target_index.empty:
-                for col in flag_cols:
-                    # If any NULL row has 'Yes', set 'Yes' in target row
-                    merged_flag = "Yes" if (null_subset[col] == "Yes").any() else "No"
-                    non_null_rows.loc[target_index, col] = non_null_rows.loc[
-                        target_index, col
-                    ].combine(
-                        pd.Series(
-                            [merged_flag] * len(target_index), index=target_index
-                        ),
-                        lambda x, y: "Yes" if y == "Yes" else x,
-                    )
-
-        # Return only non-null rows with merged values
-        ebo_df = non_null_rows.reset_index(drop=True)
+            # Return only non-null rows with merged values
+            ebo_df = non_null_rows.reset_index(drop=True)
+        else:
+            # If all rows are null OR all rows are non-null, keep original data
+            ebo_df = ebo_df.reset_index(drop=True)
 
     except SQLAlchemyError as e:
         logger.error(f"Database error in EBO Wallet Query: {e}")
@@ -563,9 +573,14 @@ def Pannsdl_service(start_date, end_date, service_name):
         WHERE DATE(pit.ApplicationStatusTs) BETWEEN :start_date and :end_date and pit.AcknowledgeNo  IS NOT NULL
         """
     )
+    iti_query= text("""
+        Select u.apna_id as IHUB_USERNAME,pn.application_no AS VENDOR_REFERENCE,pn.amount as HUB_AMOUNT,pn.status as service_status,DATE(pn.post_dt) as SERVICE_DATE from iti_portal.pan_nsdl pn
+        LEFT JOIN iti_portal.users u on u.id = pn.users_id 
+        where DATE(pn.post_dt) BETWEEN :start_date and :end_date and pn.application_no IS NOT NULL""")
     params = {"start_date": start_date, "end_date": end_date}
     try:
         df_db = execute_sql_with_retry(query, params=params)
+        pan_nsdl_iti_df = execute_sql_with_retry(iti_query, params=params)
         if df_db.empty:
             logger.warning(f"No data returned for service:{service_name}")
             return pd.DataFrame()
@@ -594,7 +609,7 @@ def Pannsdl_service(start_date, end_date, service_name):
         logger.error(f"Databasr error in PAN_NSDL_SERVICE():{e}")
     except Exception as e:
         logger.error(f"Unexpected error in PAN_NSDL_SERVICE():{e} ")
-    return result
+    return result,pan_nsdl_iti_df
 
 
 # ------------------------------------------------------------------------------

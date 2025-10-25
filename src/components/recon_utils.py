@@ -11,11 +11,11 @@ DB_SERVICE_NAME_CONFIG = {
     "BBPS": {"Db_service_name": "%BillPayment%"},
     "DMT": {"Db_service_name": "%Money Transfer%"},
     "INSURANCE_OFFLINE": {"Db_service_name": "%Insurance%"},
-    "LIC": {"Db_service_name": "LIC"},
+    "LIC": {"Db_service_name": "%LIC%"},
     "MANUAL_TB": {"Db_service_name": "%Manual%"},
     "MATM": {"Db_service_name": "%M-ATM%"},
     "MOVETOBANK": {"Db_service_name": "%MoveToBank%"},
-    "RECHARGE": {"Db_service_name": ("All - Recharge","All Recharge")},
+    "RECHARGE": {"Db_service_name": "%All - Recharge%"},
     "AEPS": {"Db_service_name": "%AEPS%"},
     "PANUTI": {"Db_service_name": "%PAN-UTI%"},
     "PANNSDL": {"Db_service_name": "%Pan Internal%"},
@@ -71,6 +71,7 @@ def merge_ebo_wallet_data(
             right_on="IHubReferenceId",
             validate="one_to_one",
         )
+    
     else:
         logger.warning("No data returned from EBO Wallet table.")
         return df

@@ -157,17 +157,22 @@ def service_selection(
 
         # Process status column
         df_excel = process_status_column(df_excel, service_config)
+        pan_nsdl_iti_df = pd.DataFrame()
 
         # Get service data and filter
         if service_name == "AEPS":
             hub_data = service_config["service_func"](
                 start_date, end_date, service_name, transaction_type
             )
+        elif service_name == "PANNSDL":
+            hub_data,pan_nsdl_iti_df = service_config["service_func"](
+                start_date, end_date, service_name
+            )
         else:
             hub_data = service_config["service_func"](
                 start_date, end_date, service_name
             )
-        return filtering_Data(hub_data, df_excel, service_name)
+        return filtering_Data(hub_data, df_excel, service_name,pan_nsdl_iti_df)
 
     except Exception as e:
         logger.error(f"Error processing {service_name} service: {str(e)}")
@@ -177,6 +182,7 @@ def service_selection(
 # Unified filtering function for both inward and outward modules
 def unified_filtering_data(
     df_db,
+    pan_nsdl_iti_df,
     df_excel,
     service_name,
     status_column_db="IHUB_MASTER_STATUS",
@@ -215,6 +221,10 @@ def unified_filtering_data(
         if "SERVICE_DATE" in df_db.columns:
             df_db["SERVICE_DATE"] = pd.to_datetime(
                 df_db["SERVICE_DATE"], errors="coerce"
+            ).dt.strftime("%Y-%m-%d")
+        if pan_nsdl_iti_df is not None and not pan_nsdl_iti_df.empty and "SERVICE_DATE" in pan_nsdl_iti_df.columns:
+            pan_nsdl_iti_df["SERVICE_DATE"] = pd.to_datetime(
+                pan_nsdl_iti_df["SERVICE_DATE"], errors="coerce"
             ).dt.strftime("%Y-%m-%d")
         # Map DB status if mapping provided
         if status_mapping_db and status_column_db in df_db.columns:
@@ -277,6 +287,24 @@ def unified_filtering_data(
         ].copy()
         not_in_portal["CATEGORY"] = "NOT_IN_PORTAL"
         not_in_portal = safe_column_select(not_in_portal, required_columns)
+        # ITI Matching for PANNSDL
+        iti_Matched = pd.DataFrame()
+        if service_name == "PANNSDL" and not pan_nsdl_iti_df.empty:
+            pan_nsdl_iti_df["VENDOR_REFERENCE"] = pan_nsdl_iti_df["VENDOR_REFERENCE"].astype(str).str.strip()
+            # ITI Matched
+            iti_Matched = pan_nsdl_iti_df[pan_nsdl_iti_df["VENDOR_REFERENCE"].isin(not_in_portal["REFID"])].copy()
+            iti_Matched["CATEGORY"] = "MATCHED_IN_ITI"
+            iti_Matched["service_status"] = iti_Matched["service_status"].astype(str).str.lower().replace({"1":"success","2":"intiated","3":"failed"})
+            iti_Matched = iti_Matched.rename(columns={"VENDOR_REFERENCE": "REFID","service_status" :"ITI_PAN_NSDL_STATUS"})
+            iti_Matched = iti_Matched.merge(
+                df_excel,
+                on="REFID",
+                how="inner",
+                suffixes=("_ITI", "_EXCEL")
+            )
+            iti_Matched = safe_column_select(iti_Matched, required_columns)
+            not_in_portal = not_in_portal[~not_in_portal["REFID"].isin(iti_Matched["REFID"])]
+
         # Matched
         matched = df_db.merge(
             df_excel, left_on="VENDOR_REFERENCE", right_on="REFID", how="inner"
@@ -482,9 +510,7 @@ def unified_filtering_data(
         ]
         if not non_empty_dfs:
             log("Filteration Ends")
-            message = "Hurray there is no Mistmatch values in your DataSet..!"
             mapping = {
-                "message": message,
                 "Total_Success_count": success_count,
                 "Total_Failed_count": failed_count,
                 "Excel_value_count": Excel_count,
@@ -504,6 +530,7 @@ def unified_filtering_data(
             mapping = {
                 "not_in_vendor": scenarios["not_in_vendor"],
                 "combined": combined,
+                "iti_Matched": iti_Matched,
                 "not_in_Portal": scenarios["not_in_portal"],
                 "VEND_IHUB_SUC-NIL": scenarios["vend_ihub_succ_not_in_ledger"],
                 "VEND_FAIL_IHUB_SUC-NIL": scenarios[
@@ -543,7 +570,7 @@ def unified_filtering_data(
 
 # ---------------------------------------------------------------------------------
 # Filtering Function
-def filtering_Data(df_db, df_excel, service_name):
+def filtering_Data(df_db, df_excel, service_name,pan_nsdl_iti_df=None):
 
     # Use the unified filtering function with parameters matching the old logic
     if service_name in ["PASSPORT", "INSURANCE_OFFLINE"]:
@@ -602,6 +629,7 @@ def filtering_Data(df_db, df_excel, service_name):
     # Call the unified function
     return unified_filtering_data(
         df_db,
+        pan_nsdl_iti_df,
         df_excel,
         service_name,
         status_column_db="IHUB_MASTER_STATUS",
