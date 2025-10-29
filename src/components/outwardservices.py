@@ -28,7 +28,7 @@ DB_RETRY_CONFIG = {
     "reraise": True,
 }
 
-  
+
 ####
 @retry(**DB_RETRY_CONFIG)
 def execute_sql_with_retry(query, params=None):
@@ -77,13 +77,43 @@ def getServiceId(MasterServiceId, MasterVendorId):
     return result
 
 
-def get_ebo_wallet_data(start_date, end_date,db_service_name):
+def get_ebo_wallet_data(start_date, end_date, db_service_name):
     logger.info("Fetching Data from EBO Wallet Transaction")
     ebo_df = None
 
-    query = text(
-        """
-            SELECT  
+    # Define transaction credit descriptions based on service type
+    if db_service_name == "%AEPS%":
+        transaction_credit_descriptions = [
+            "Transaction - Credit",
+            "Transaction - Refund",
+            "Manual Refund Credit - Transaction - Credit",
+        ]
+    else:
+        transaction_credit_descriptions = [
+            "Transaction - Credit",
+            "Transaction - Credit due to failure",
+            "Transaction - Refund",
+            "Manual Refund Credit - Transaction - Credit",
+        ]
+
+    # Common descriptions for other fields
+    transaction_debit_descriptions = [
+        "Transaction - Debit",
+        "Manual Refund Debit - Transaction - Debit",
+    ]
+    commission_credit_descriptions = [
+        "Commission Added",
+        "Manual Refund Credit - Commission - Added",
+    ]
+    commission_reversal_descriptions = [
+        "Commission - Reversal",
+        "Commission Reversal",
+        "Manual Refund Debit - Commission - Reversal",
+    ]
+
+    # Build the query using parameterized descriptions
+    base_query = """
+        SELECT  
             Finall.IHubReferenceId,
             Finall.MasterTransactionsId,
             MAX(Finall.TRANSACTION_CREDIT)   AS TRANSACTION_CREDIT,
@@ -91,23 +121,14 @@ def get_ebo_wallet_data(start_date, end_date,db_service_name):
             MAX(Finall.COMMISSION_CREDIT)    AS COMMISSION_CREDIT,
             MAX(Finall.COMMISSION_REVERSAL)  AS COMMISSION_REVERSAL
         FROM (
-            -- Case 1
+            -- Case 1: Join on TenantMasterTransactionId
             SELECT  
                 mt2.TransactionRefNum AS IHubReferenceId,
                 ewt.MasterTransactionsId,
-                MAX(CASE WHEN ewt.Description IN (
-                    'Transaction - Credit', 'Transaction - Credit due to failure', 'Transaction - Refund',
-                    'Manual Refund Credit - Transaction - Credit'
-                ) THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
-                MAX(CASE WHEN ewt.Description IN (
-                    'Transaction - Debit','Manual Refund Debit - Transaction - Debit'
-                ) THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
-                MAX(CASE WHEN ewt.Description IN (
-                    'Commission Added','Manual Refund Credit - Commission - Added'
-                ) THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
-                MAX(CASE WHEN ewt.Description IN (
-                    'Commission - Reversal','Commission Reversal','Manual Refund Debit - Commission - Reversal'
-                ) THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
+                MAX(CASE WHEN ewt.Description IN :transaction_credit_descriptions THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
+                MAX(CASE WHEN ewt.Description IN :transaction_debit_descriptions THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
+                MAX(CASE WHEN ewt.Description IN :commission_credit_descriptions THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
+                MAX(CASE WHEN ewt.Description IN :commission_reversal_descriptions THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
             FROM ihubcore.MasterTransaction mt2
             JOIN tenantinetcsc.EboWalletTransaction ewt
                 ON mt2.TenantMasterTransactionId = ewt.MasterTransactionsId
@@ -120,23 +141,14 @@ def get_ebo_wallet_data(start_date, end_date,db_service_name):
 
             UNION
 
-            -- Case 2
+            -- Case 2: Join on TransactionRefNum
             SELECT  
                 mt2.TransactionRefNum AS IHubReferenceId,
                 ewt.MasterTransactionsId,
-                MAX(CASE WHEN ewt.Description IN (
-                    'Transaction - Credit', 'Transaction - Credit due to failure', 'Transaction - Refund',
-                    'Manual Refund Credit - Transaction - Credit'
-                ) THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
-                MAX(CASE WHEN ewt.Description IN (
-                    'Transaction - Debit','Manual Refund Debit - Transaction - Debit'
-                ) THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
-                MAX(CASE WHEN ewt.Description IN (
-                    'Commission Added','Manual Refund Credit - Commission - Added'
-                ) THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
-                MAX(CASE WHEN ewt.Description IN (
-                    'Commission - Reversal','Commission Reversal','Manual Refund Debit - Commission - Reversal'
-                ) THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
+                MAX(CASE WHEN ewt.Description IN :transaction_credit_descriptions THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
+                MAX(CASE WHEN ewt.Description IN :transaction_debit_descriptions THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
+                MAX(CASE WHEN ewt.Description IN :commission_credit_descriptions THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
+                MAX(CASE WHEN ewt.Description IN :commission_reversal_descriptions THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
             FROM ihubcore.MasterTransaction mt2
             JOIN tenantinetcsc.EboWalletTransaction ewt
                 ON mt2.TransactionRefNum = ewt.IHubReferenceId
@@ -145,32 +157,36 @@ def get_ebo_wallet_data(start_date, end_date,db_service_name):
             AND ewt.CreationTs >= CONCAT(:start_date, ' 00:00:00')
             AND ewt.CreationTs <=  DATE_ADD(CONCAT(:end_date, ' 00:00:00'), INTERVAL 30 DAY)
             AND ewt.ServiceName LIKE :db_service_name
-            GROUP BY mt2.TransactionRefNum)as Finall
+            GROUP BY mt2.TransactionRefNum
+        ) as Finall
         GROUP BY Finall.IHubReferenceId
-        """
-    )
+    """
+
+    query = text(base_query)
 
     try:
-        #---- USE TO PRINT QUERY WHILE DEBUGGING ----
-        # logger.info(f"Executing EBO Wallet Query with parameters: start_date={start_date}, end_date={end_date}, db_service_name={db_service_name}")
-        
-        # # Print formatted query for debugging
-        # formatted_query = query.text.replace(":start_date", f"'{start_date}'") \
-        #                         .replace(":end_date", f"'{end_date}'") \
-        #                         .replace(":db_service_name", f"'{db_service_name}'")
-        
-        # logger.info("=== SQL Query with Parameters ===")
-        # logger.info(formatted_query)
-        # logger.info("=================================")
-
         # Execute query with retry
         ebo_df = execute_sql_with_retry(
-            query, params={"start_date": start_date, "end_date": end_date, "db_service_name": db_service_name}
+            query,
+            params={
+                "start_date": start_date,
+                "end_date": end_date,
+                "db_service_name": db_service_name,
+                "transaction_credit_descriptions": tuple(
+                    transaction_credit_descriptions
+                ),
+                "transaction_debit_descriptions": tuple(transaction_debit_descriptions),
+                "commission_credit_descriptions": tuple(commission_credit_descriptions),
+                "commission_reversal_descriptions": tuple(
+                    commission_reversal_descriptions
+                ),
+            },
         )
 
         if ebo_df.empty:
             logger.warning("No data returned from EBO Wallet table.")
             return pd.DataFrame()
+
         # =============================
         # Merge multiple NULL-ID rows into proper rows
         # =============================
@@ -181,22 +197,28 @@ def get_ebo_wallet_data(start_date, end_date,db_service_name):
         if not null_rows.empty and not non_null_rows.empty:
             flag_cols = [
                 "TRANSACTION_CREDIT",
-                "TRANSACTION_DEBIT", 
+                "TRANSACTION_DEBIT",
                 "COMMISSION_CREDIT",
                 "COMMISSION_REVERSAL",
             ]
 
             for hub_id in null_rows["IHubReferenceId"].unique():
                 null_subset = null_rows[null_rows["IHubReferenceId"] == hub_id]
-                target_index = non_null_rows[non_null_rows["IHubReferenceId"] == hub_id].index
+                target_index = non_null_rows[
+                    non_null_rows["IHubReferenceId"] == hub_id
+                ].index
 
                 if not target_index.empty:
                     for col in flag_cols:
-                        merged_flag = "Yes" if (null_subset[col] == "Yes").any() else "No"
+                        merged_flag = (
+                            "Yes" if (null_subset[col] == "Yes").any() else "No"
+                        )
                         non_null_rows.loc[target_index, col] = non_null_rows.loc[
                             target_index, col
                         ].combine(
-                            pd.Series([merged_flag] * len(target_index), index=target_index),
+                            pd.Series(
+                                [merged_flag] * len(target_index), index=target_index
+                            ),
                             lambda x, y: "Yes" if y == "Yes" else x,
                         )
 
@@ -276,7 +298,9 @@ def recharge_Service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name,get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Database error in recharge_Service(): {e}")
     except Exception as e:
@@ -449,7 +473,9 @@ def Panuti_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Databasr error in PAN_UTI_SERVICE():{e}")
     except Exception as e:
@@ -525,7 +551,9 @@ def dmt_Service(start_date, end_date, service_name):
         )
         df_db = map_tenant_id_column(df_db)
 
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Databasr error in DMT_SERVICE():{e}")
     except Exception as e:
@@ -573,10 +601,12 @@ def Pannsdl_service(start_date, end_date, service_name):
         WHERE DATE(pit.ApplicationStatusTs) BETWEEN :start_date and :end_date and pit.AcknowledgeNo  IS NOT NULL
         """
     )
-    iti_query= text("""
+    iti_query = text(
+        """
         Select u.apna_id as IHUB_USERNAME,pn.application_no AS VENDOR_REFERENCE,pn.amount as HUB_AMOUNT,pn.status as service_status,DATE(pn.post_dt) as SERVICE_DATE from iti_portal.pan_nsdl pn
         LEFT JOIN iti_portal.users u on u.id = pn.users_id 
-        where DATE(pn.post_dt) BETWEEN :start_date and :end_date and pn.application_no IS NOT NULL""")
+        where DATE(pn.post_dt) BETWEEN :start_date and :end_date and pn.application_no IS NOT NULL"""
+    )
     params = {"start_date": start_date, "end_date": end_date}
     try:
         df_db = execute_sql_with_retry(query, params=params)
@@ -604,12 +634,14 @@ def Pannsdl_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Databasr error in PAN_NSDL_SERVICE():{e}")
     except Exception as e:
         logger.error(f"Unexpected error in PAN_NSDL_SERVICE():{e} ")
-    return result,pan_nsdl_iti_df
+    return result, pan_nsdl_iti_df
 
 
 # ------------------------------------------------------------------------------
@@ -625,6 +657,7 @@ def passport_service(start_date, end_date, service_name):
                mt2.CreationUserId as IHUB_USERNAME,
                mst.NetCommissionAddedToEBOWallet AS COMMISSION_AMOUNT,
                mt2.TransactionStatus AS IHUB_MASTER_STATUS,
+               mt2.TenantMasterTransactionId AS TENANT_MASTER_TRANSACTION_ID,
                pi.BankReferenceTs AS SERVICE_DATE, 
                pi.PassportInStatusType AS service_status,
                pi.Amount as HUB_AMOUNT,
@@ -675,7 +708,98 @@ def passport_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
+
+        previous_dated_transactions = result[result["MasterTransactionsId"].isnull()]
+        previous_dated_transactions_id = previous_dated_transactions[
+            "TENANT_MASTER_TRANSACTION_ID"
+        ].tolist()
+
+        # print(previous_dated_transactions_id)
+
+        if previous_dated_transactions_id:
+            logger.info("Fetching previous dated transactions from EBO Wallet table.")
+            query_previous_ebo = text(
+                """
+                SELECT  
+                    Finall.IHubReferenceId,
+                    Finall.MasterTransactionsId,
+                    MAX(Finall.TRANSACTION_CREDIT)   AS TRANSACTION_CREDIT,
+                    MAX(Finall.TRANSACTION_DEBIT)    AS TRANSACTION_DEBIT,
+                    MAX(Finall.COMMISSION_CREDIT)    AS COMMISSION_CREDIT,
+                    MAX(Finall.COMMISSION_REVERSAL)  AS COMMISSION_REVERSAL
+                FROM (
+                    SELECT  
+                        mt2.TransactionRefNum AS IHubReferenceId,
+                        ewt.MasterTransactionsId,
+                        MAX(CASE WHEN ewt.Description IN :transaction_credit_descriptions THEN 'Yes' ELSE 'No' END) AS TRANSACTION_CREDIT,
+                        MAX(CASE WHEN ewt.Description IN :transaction_debit_descriptions THEN 'Yes' ELSE 'No' END) AS TRANSACTION_DEBIT,
+                        MAX(CASE WHEN ewt.Description IN :commission_credit_descriptions THEN 'Yes' ELSE 'No' END) AS COMMISSION_CREDIT,
+                        MAX(CASE WHEN ewt.Description IN :commission_reversal_descriptions THEN 'Yes' ELSE 'No' END) AS COMMISSION_REVERSAL
+                    FROM ihubcore.MasterTransaction mt2
+                    JOIN tenantinetcsc.EboWalletTransaction ewt
+                        ON mt2.TenantMasterTransactionId = ewt.MasterTransactionsId
+                    WHERE ewt.MasterTransactionsId IN :previous_dated_transactions_id
+                    AND ewt.ServiceName LIKE :db_service_name
+                    GROUP BY ewt.MasterTransactionsId
+                ) AS Finall
+                GROUP BY Finall.IHubReferenceId, Finall.MasterTransactionsId
+                """
+            )
+            transaction_credit_descriptions = [
+                "Transaction - Credit",
+                "Transaction - Credit due to failure",
+                "Transaction - Refund",
+                "Manual Refund Credit - Transaction - Credit",
+            ]
+            # Common descriptions for other fields
+            transaction_debit_descriptions = [
+                "Transaction - Debit",
+                "Manual Refund Debit - Transaction - Debit",
+            ]
+            commission_credit_descriptions = [
+                "Commission Added",
+                "Manual Refund Credit - Commission - Added",
+            ]
+            commission_reversal_descriptions = [
+                "Commission - Reversal",
+                "Commission Reversal",
+                "Manual Refund Debit - Commission - Reversal",
+            ]
+
+            # Convert to tuple for SQL IN clause
+            params = {
+                "previous_dated_transactions_id": tuple(previous_dated_transactions_id),
+                "db_service_name": "%Passport%",
+                "transaction_credit_descriptions": tuple(
+                    transaction_credit_descriptions
+                ),
+                "transaction_debit_descriptions": tuple(transaction_debit_descriptions),
+                "commission_credit_descriptions": tuple(commission_credit_descriptions),
+                "commission_reversal_descriptions": tuple(
+                    commission_reversal_descriptions
+                ),
+            }
+            ebo_previous_df = execute_sql_with_retry(query_previous_ebo, params=params)
+            if not ebo_previous_df.empty:
+                # Create mapping and mask
+                ebo_mapping = ebo_previous_df.set_index('MasterTransactionsId')[
+                    ['TRANSACTION_CREDIT', 'TRANSACTION_DEBIT', 'COMMISSION_CREDIT', 'COMMISSION_REVERSAL']
+                ]
+                
+                update_mask = result['TENANT_MASTER_TRANSACTION_ID'].isin(ebo_mapping.index)
+                
+                if update_mask.any():
+                    # Get indices of matching rows for efficient updating
+                    matching_indices = result[update_mask].index
+                    matching_tmt_ids = result.loc[update_mask, 'TENANT_MASTER_TRANSACTION_ID']
+                    
+                    # Batch update all columns at once
+                    updated_values = ebo_mapping.loc[matching_tmt_ids].values
+                    result.loc[update_mask, ['TRANSACTION_CREDIT', 'TRANSACTION_DEBIT', 'COMMISSION_CREDIT', 'COMMISSION_REVERSAL']] = updated_values
     except SQLAlchemyError as e:
         logger.error(f"Database error in Passport_service(): {e}")
     except Exception as e:
@@ -750,7 +874,9 @@ def lic_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Database error in recharge_Service(): {e}")
     except Exception as e:
@@ -821,7 +947,9 @@ def astro_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
 
     except SQLAlchemyError as e:
         logger.error(f"Database error in ASTRO_Service(): {e}")
@@ -899,7 +1027,9 @@ def insurance_offline_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Database error in insurance_offline_service(): {e}")
     except Exception as e:
@@ -971,13 +1101,18 @@ def abhibus_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Database error in abhibus_service(): {e}")
     except Exception as e:
         logger.error(f"Unexpected error in abhibus_service(): {e}")
     return result
+
+
 # -----------------------------------------------------------------------------------------------------------------------
+
 
 def moveToBank_service(start_date, end_date, service_name):
     logger.info(f"Fetching data from HUB for {service_name}")
@@ -1036,7 +1171,9 @@ def moveToBank_service(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Database error in moveToBank_service(): {e}")
     except Exception as e:
@@ -1107,7 +1244,9 @@ def manualTB_sevice(start_date, end_date, service_name):
             drop_original=True,
         )
         df_db = map_tenant_id_column(df_db)
-        result = merge_ebo_wallet_data(df_db, start_date, end_date, service_name, get_ebo_wallet_data)
+        result = merge_ebo_wallet_data(
+            df_db, start_date, end_date, service_name, get_ebo_wallet_data
+        )
     except SQLAlchemyError as e:
         logger.error(f"Database error in manualTB_service(): {e}")
     except Exception as e:

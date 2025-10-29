@@ -4,6 +4,7 @@ recon_utils.py - Shared reconciliation helper functions for DRY, maintainable co
 
 import pandas as pd
 from logger_config import logger
+from db_connector import get_db_connection
 
 DB_SERVICE_NAME_CONFIG = {
     "ASTRO": {"Db_service_name": "%Astrology%"},
@@ -62,6 +63,9 @@ def merge_ebo_wallet_data(
     ebo_result = get_ebo_wallet_data_func(
         start_date, end_date, db_service_name["Db_service_name"]
     )
+    # if service_name == "PASSPORT":
+       
+            
     if ebo_result is not None and not ebo_result.empty:
         return pd.merge(
             df,
@@ -71,7 +75,7 @@ def merge_ebo_wallet_data(
             right_on="IHubReferenceId",
             validate="one_to_one",
         )
-    
+
     else:
         logger.warning("No data returned from EBO Wallet table.")
         return df

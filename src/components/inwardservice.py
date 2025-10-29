@@ -246,6 +246,4 @@ def matm_Service(start_date, end_date, service_name):
         logger.error(f"Unexpected error in Matm_Service(): {e}")
 
     return result
-
-
 # ----------------------------------------------------------------------------------

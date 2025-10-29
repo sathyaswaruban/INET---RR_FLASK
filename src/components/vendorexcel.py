@@ -109,6 +109,9 @@ def vendorexcel_reconciliation(
             not_in_statement_df = ledger_df[
                 ~ledger_txnids.isin(statement_txnids)
             ].copy()
+            not_in_statement_df = not_in_statement_df.rename(
+                columns={"REFUNDTXNID": "REFUND_TXNID"}
+            )
             not_in_statement_df = safe_column_select(
                 not_in_statement_df, REQUIRED_COLUMNS
             )
@@ -117,6 +120,9 @@ def vendorexcel_reconciliation(
             not_in_ledger_df = statement_df[
                 ~statement_txnids.isin(ledger_txnids)
             ].copy()
+            not_in_ledger_df = not_in_ledger_df.rename(
+                columns={"REFUNDTXNID": "REFUND_TXNID"}
+            )
             not_in_ledger_df = safe_column_select(not_in_ledger_df, REQUIRED_COLUMNS)
 
             # Extract REFUND_TXNID
@@ -141,7 +147,7 @@ def vendorexcel_reconciliation(
             failed_refunds["REFUND_TXNID"] = (
                 failed_refunds["REFUND_TXNID"].astype(str).str.strip()
             )
-
+            # print(not_in_statement_df["TXNID"])
             matching_refunds_df = failed_refunds.merge(
                 not_in_statement_df[["TXNID", "TYPE"]],
                 left_on="REFUND_TXNID",
@@ -160,7 +166,18 @@ def vendorexcel_reconciliation(
 
             if "REFUND_TXNID" in failed_refunds.columns:
                 merged_df = failed_refunds.merge(
-                    not_in_statement_df[["TXNID", "TYPE"]],
+                    not_in_statement_df[
+                        [
+                            "TXNID",
+                            "TYPE",
+                            "AMOUNT",
+                            "COMM",
+                            "TDS",
+                            "DATE",
+                            "REFID",
+                            "REFUND_TXNID",
+                        ]
+                    ],
                     left_on="REFUND_TXNID",
                     right_on="TXNID",
                     how="outer",
@@ -168,13 +185,57 @@ def vendorexcel_reconciliation(
                 )
                 mismatch_statement_df = (
                     merged_df.query('_merge == "left_only"')
-                    .drop(columns=["_merge", "TXNID_y"])
-                    .rename(columns={"TXNID_x": "TXNID"})
+                    .drop(
+                        columns=[
+                            "_merge",
+                            "TXNID_y",
+                            "TDS_x",
+                            "COMM_y",
+                            "AMOUNT_y",
+                            "DATE_y",
+                            "REFID_y",
+                            "REFUND_TXNID_y",
+                        ]
+                    )
+                    .rename(
+                        columns={
+                            "TXNID_x": "TXNID",
+                            "TDS_x": "TDS",
+                            "COMM_x": "COMM",
+                            "AMOUNT_x": "AMOUNT",
+                            "DATE_x": "DATE",
+                            "TYPE_x": "TYPE",
+                            "REFID_x": "REFID",
+                            "REFUND_TXNID_x": "REFUND_TXNID",
+                        }
+                    )
                 )
                 mismatch_ledger_df = (
                     merged_df.query('_merge == "right_only"')
-                    .drop(columns=["_merge", "TXNID_x"])
-                    .rename(columns={"TXNID_y": "TXNID"})
+                    .drop(
+                        columns=[
+                            "_merge",
+                            "TXNID_x",
+                            "TDS_x",
+                            "COMM_x",
+                            "AMOUNT_x",
+                            "DATE_x",
+                            "REFID_x",
+                            "REFUND_TXNID_x",
+                        ]
+                    )
+                    .rename(
+                        columns={
+                            "TXNID_y": "TXNID",
+                            "TDS_y": "TDS",
+                            "COMM_y": "COMM",
+                            "AMOUNT_y": "AMOUNT",
+                            "DATE_y": "DATE",
+                            "TYPE_y": "TYPE",
+                            "REFID_y": "REFID",
+                            "REFUND_TXNID_y": "REFUND_TXNID",
+                        }
+                    )
                 )
             else:
                 mismatch_statement_df = not_in_statement_df.copy()
@@ -186,9 +247,7 @@ def vendorexcel_reconciliation(
             mismatch_statement_df = safe_column_select(
                 mismatch_statement_df, REQUIRED_COLUMNS
             )
-
             logger.info("Vendor ledger reconciliation completed successfully.")
-
             # Return results
             if (
                 not_in_ledger_df.empty
@@ -209,21 +268,30 @@ def vendorexcel_reconciliation(
                 return {
                     "matching_trans": matching_Trans_df,
                     "not_in_ledger": not_in_ledger_df,
+                    "not_in_statement": mismatch_ledger_df,
                     "matching_refunds": matching_refunds_df,
                     "mismatch_statement_refunds": mismatch_statement_df,
-                    "mismatch_ledger_refunds": mismatch_ledger_df,
+                    # "mismatch_ledger_refunds": mismatch_ledger_df,
                     "ledger_count": ledger_count,
                     "statement_count": statement_count,
                     "matched_trans_count": matched_count,
                     "failed_trans_count": failed_count,
                     "ledger_credit_count": credit_count,
                 }
-
         elif service_name in ["AEPS"]:
             """
             AEPS Service Block
             - Compares settled IDs, handles commission matches, and amount mismatches.
             """
+            ledger_df = ledger_df[
+                ~ledger_df["TXNTYPE"]
+                .str.strip()
+                .str.contains(
+                    "settlement|Merchant Two Factor Authentication Charges|Ministatement",
+                    case=False,
+                    na=False,
+                )
+            ].copy()
             # Normalize column names
             statement_df.columns = statement_df.columns.str.strip().str.upper()
             ledger_df.columns = ledger_df.columns.str.strip().str.upper()
@@ -311,7 +379,10 @@ def vendorexcel_reconciliation(
             )
             # Step 3: Unmatched withdrawals
             unmatched_statement = (
-                statement_df[~statement_df["SETTLED_ID"].isin(ledger_df["SNO"])]
+                statement_df[
+                    (~statement_df["SETTLED_ID"].isin(ledger_df["SNO"]))
+                    & (statement_df["STATUS"].str.lower() != "failed")
+                ]
                 .rename(
                     columns={
                         "AMOUNT": "AMOUNT_STATEMENT",
@@ -371,10 +442,6 @@ def vendorexcel_reconciliation(
             unmatched_ledger_final = safe_column_select(
                 unmatched_ledger_final, REQUIRED_COLUMNS
             )
-            unmatched_statement = safe_column_select(
-                unmatched_statement, REQUIRED_COLUMNS
-            )
-
             # Count results
             matched_count = commission_merged.shape[0]
             failed_count = (
@@ -407,7 +474,7 @@ def vendorexcel_reconciliation(
                 and amount_mismatch_rows.empty
             ):
                 return {
-                    "message": "No Mismatch......",
+                    "message": "No Mismatch..!",
                     "matching_trans": commission_merged,
                     "ledger_count": ledger_count,
                     "statement_count": statement_count,
