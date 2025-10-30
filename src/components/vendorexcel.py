@@ -692,6 +692,7 @@ def vendorexcel_reconciliation(
                 "AMOUNT_STATEMENT",
                 "REFUNDED_AMOUNT",
                 "TRANSACTION_STATUS",
+                "ACTUAL_TRANS_DATE",
                 "DATE",
             ]
             # Count credit transactions
@@ -773,13 +774,50 @@ def vendorexcel_reconciliation(
                     statement_df["TRANS_REF_ID_STMT"]
                 )
             ].copy()
+            credit_trans_not_in_statement["TRANS_DATE"] = (
+                credit_trans_not_in_statement["DESCRIPTION"].str.split("-").str[-1]
+            )
+
+            def standardize_dates(df, date_column="TRANS_DATE"):
+                # Create a copy to avoid SettingWithCopyWarning
+                result_df = df.copy()
+
+                # First, convert slash format (mm/dd/yyyy)
+                slash_dates = pd.to_datetime(
+                    result_df[date_column], format="%m/%d/%Y", errors="coerce"
+                )
+
+                # Then, convert no-slash format (ddmmyyyy)
+                noslash_dates = pd.to_datetime(
+                    result_df[date_column], format="%d%m%Y", errors="coerce"
+                )
+
+                # Combine both (noslash_dates will fill the NaN values from slash_dates)
+                standardized = slash_dates.fillna(noslash_dates)
+
+                # Format to yyyy-mm-dd
+                result_df["TRANS_DATE_STANDARDIZED"] = standardized.dt.strftime(
+                    "%Y-%m-%d"
+                )
+
+                return result_df
+
+            credit_trans_not_in_statement = standardize_dates(
+                credit_trans_not_in_statement
+            )
+            credit_trans_not_in_statement = credit_trans_not_in_statement.drop(
+                columns=["TRANS_DATE"]
+            )
+            print(credit_trans_not_in_statement.columns.to_list())
             credit_trans_not_in_statement = credit_trans_not_in_statement.rename(
                 columns={
                     "CREDIT": "REFUNDED_AMOUNT",
                     "REF_NUMBER": "TRANS_REF_ID",
                     "TRANSACTION DATE": "DATE",
+                    "TRANS_DATE_STANDARDIZED": "ACTUAL_TRANS_DATE",
                 }
             )
+            # print(credit_trans_not_in_statement["ACTUAL_TRANS_DATE"])
             credit_trans_not_in_statement = safe_column_select(
                 credit_trans_not_in_statement, REQUIRED_COLUMNS
             )
