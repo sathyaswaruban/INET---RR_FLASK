@@ -245,6 +245,7 @@ def service_function(start_date, end_date, service_name):
     return result
 
 
+# Define service configurations
 SERVICE_CONFIGS = {
     "SULTANPURSCA": {
         "main_query": text(

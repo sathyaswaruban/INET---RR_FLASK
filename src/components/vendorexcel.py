@@ -57,7 +57,7 @@ def vendorexcel_reconciliation(
         - Handles matching, mismatches, and refund logic for recharge and DMT services.
         """
         if service_name in ["RECHARGE", "DMT"]:
-
+            # Precompute frequently used values
             failed_count = statement_df[
                 statement_df["STATUS"].str.strip().str.lower() == "failed"
             ].shape[0]
@@ -65,20 +65,15 @@ def vendorexcel_reconciliation(
                 ledger_df["TYPE"].str.strip().str.lower() == "credit"
             ].shape[0]
 
-            # Standardize commission columns
-            ledger_df = (
-                ledger_df.rename(columns={"COMM/SHARE": "COMM"})
-                if "COMM/SHARE" in ledger_df.columns
-                else ledger_df
-            )
-            statement_df = (
-                statement_df.rename(columns={"NET COMMISSION": "COMM"})
-                if "NET COMMISSION" in statement_df.columns
-                else statement_df
-            )
+            # Standardize commission columns - simplified
+            if "COMM/SHARE" in ledger_df.columns:
+                ledger_df = ledger_df.rename(columns={"COMM/SHARE": "COMM"})
+            if "NET COMMISSION" in statement_df.columns:
+                statement_df = statement_df.rename(columns={"NET COMMISSION": "COMM"})
 
-            # Date formatting
-            for df in [ledger_df, statement_df]:
+            # Date formatting - optimized loop
+            date_dfs = [ledger_df, statement_df]
+            for df in date_dfs:
                 if "DATE" in df.columns:
                     df["DATE"] = pd.to_datetime(
                         df["DATE"], errors="coerce"
@@ -92,20 +87,29 @@ def vendorexcel_reconciliation(
                 "TYPE",
                 "DATE",
                 "REFID",
+                "STATUS",
                 "REFUND_TXNID",
+                "REFUNDED_DATE",
             ]
 
+            # Preprocess dataframes
             statement_df["REFID"] = statement_df["REFID"].astype(str).str.strip()
+            statement_df["REFUNDED_DATE"] = statement_df["REFUND"].str.extract(
+                r"Date :\s*(\d{4}-\d{2}-\d{2})"
+            )
 
+            # Strip TXNIDs once and reuse
+            ledger_txnids = ledger_df["TXNID"].astype(str).str.strip()
+            statement_txnids = statement_df["TXNID"].astype(str).str.strip()
+
+            # Merge operations
             matching_Trans_df = statement_df.merge(
                 ledger_df[["TXNID", "TYPE"]], on="TXNID", how="inner"
             )
             matching_Trans_df = safe_column_select(matching_Trans_df, REQUIRED_COLUMNS)
             matched_count = matching_Trans_df.shape[0]
 
-            ledger_txnids = ledger_df["TXNID"].astype(str).str.strip()
-            statement_txnids = statement_df["TXNID"].astype(str).str.strip()
-
+            # Find mismatches
             not_in_statement_df = ledger_df[
                 ~ledger_txnids.isin(statement_txnids)
             ].copy()
@@ -116,7 +120,6 @@ def vendorexcel_reconciliation(
                 not_in_statement_df, REQUIRED_COLUMNS
             )
 
-            # Records in statement but not in ledger
             not_in_ledger_df = statement_df[
                 ~statement_txnids.isin(ledger_txnids)
             ].copy()
@@ -133,6 +136,7 @@ def vendorexcel_reconciliation(
             elif "REFUNDTXNID" in statement_df.columns and service_name == "DMT":
                 statement_df["REFUND_TXNID"] = statement_df["REFUNDTXNID"].str.strip()
 
+            # Failed refunds
             failed_refunds = (
                 statement_df.loc[
                     statement_df["STATUS"].str.lower().str.strip() == "failed"
@@ -141,29 +145,33 @@ def vendorexcel_reconciliation(
                 else pd.DataFrame(columns=statement_df.columns)
             )
 
+            # Prepare for merge
             not_in_statement_df["TXNID"] = (
                 not_in_statement_df["TXNID"].astype(str).str.strip()
             )
             failed_refunds["REFUND_TXNID"] = (
                 failed_refunds["REFUND_TXNID"].astype(str).str.strip()
             )
-            # print(not_in_statement_df["TXNID"])
-            matching_refunds_df = failed_refunds.merge(
-                not_in_statement_df[["TXNID", "TYPE"]],
-                left_on="REFUND_TXNID",
-                right_on="TXNID",
-                how="inner",
-                indicator=True,
-            )
+
+            # Matching refunds
             matching_refunds_df = (
-                matching_refunds_df.query('_merge == "both"')
+                failed_refunds.merge(
+                    not_in_statement_df[["TXNID", "TYPE"]],
+                    left_on="REFUND_TXNID",
+                    right_on="TXNID",
+                    how="inner",
+                    indicator=True,
+                )
+                .query('_merge == "both"')
                 .drop(columns=["TXNID_y", "_merge"])
                 .rename(columns={"TXNID_x": "TXNID"})
             )
+
             matching_refunds_df = safe_column_select(
                 matching_refunds_df, REQUIRED_COLUMNS
             )
 
+            # Mismatch handling
             if "REFUND_TXNID" in failed_refunds.columns:
                 merged_df = failed_refunds.merge(
                     not_in_statement_df[
@@ -183,6 +191,8 @@ def vendorexcel_reconciliation(
                     how="outer",
                     indicator=True,
                 )
+
+                # Mismatch statement
                 mismatch_statement_df = (
                     merged_df.query('_merge == "left_only"')
                     .drop(
@@ -210,6 +220,8 @@ def vendorexcel_reconciliation(
                         }
                     )
                 )
+
+                # Mismatch ledger
                 mismatch_ledger_df = (
                     merged_df.query('_merge == "right_only"')
                     .drop(
@@ -241,14 +253,29 @@ def vendorexcel_reconciliation(
                 mismatch_statement_df = not_in_statement_df.copy()
                 mismatch_ledger_df = pd.DataFrame(columns=REQUIRED_COLUMNS)
 
+            # Final dataframe preparations
             mismatch_ledger_df = safe_column_select(
                 mismatch_ledger_df, REQUIRED_COLUMNS
             )
             mismatch_statement_df = safe_column_select(
                 mismatch_statement_df, REQUIRED_COLUMNS
             )
+
+            mismatch_statement_df = mismatch_statement_df.merge(
+                statement_df[["TXNID", "REFUNDED_DATE"]], on="TXNID", how="left"
+            )
+            mismatch_statement_df = safe_column_select(
+                mismatch_statement_df, REQUIRED_COLUMNS
+            )
+
+            # Filter failed transactions
+            matching_Trans_df = matching_Trans_df[
+                matching_Trans_df["STATUS"] != "failed"
+            ].copy()
+
             logger.info("Vendor ledger reconciliation completed successfully.")
-            # Return results
+
+            # Return results - simplified condition
             if (
                 not_in_ledger_df.empty
                 and mismatch_statement_df.empty
@@ -270,8 +297,7 @@ def vendorexcel_reconciliation(
                     "not_in_ledger": not_in_ledger_df,
                     "not_in_statement": mismatch_ledger_df,
                     "matching_refunds": matching_refunds_df,
-                    "mismatch_statement_refunds": mismatch_statement_df,
-                    # "mismatch_ledger_refunds": mismatch_ledger_df,
+                    "failed_not_refunded": mismatch_statement_df,
                     "ledger_count": ledger_count,
                     "statement_count": statement_count,
                     "matched_trans_count": matched_count,
@@ -652,8 +678,6 @@ def vendorexcel_reconciliation(
             statement_df.columns = statement_df.columns.str.strip().str.upper()
             ledger_df.columns = ledger_df.columns.str.strip().str.upper()
 
-            # Filter ledger to only include transactions starting with "KM"
-
             def clean_rrn_value(value):
                 """
                 Clean RRN/Amount values:
@@ -668,23 +692,27 @@ def vendorexcel_reconciliation(
                 except (ValueError, TypeError):
                     return str(value).strip() if pd.notna(value) else ""
 
-            # Clean amount columns
-            for col in ["AMOUNT_LEDGER", "AMOUNT_STATEMENT"]:
-                if col in ledger_df.columns:
-                    ledger_df[col] = ledger_df[col].apply(clean_rrn_value)
-                if col in statement_df.columns:
-                    statement_df[col] = statement_df[col].apply(clean_rrn_value)
-            ledger_df["AMOUNT_LEDGER"] = ledger_df["AMOUNT_LEDGER"].astype(str)
-            statement_df["AMOUNT_STATEMENT"] = statement_df["AMOUNT_STATEMENT"].astype(
-                str
-            )
-            # Strip spaces from all string columns
+            # Clean amount columns and strip spaces in single loops
             for df in [ledger_df, statement_df]:
                 for col in df.columns:
                     if df[col].dtype == "object":
                         df[col] = df[col].apply(
                             lambda x: x.strip() if isinstance(x, str) else x
                         )
+
+                # Clean specific amount columns
+                if "AMOUNT_LEDGER" in df.columns:
+                    df["AMOUNT_LEDGER"] = df["AMOUNT_LEDGER"].apply(clean_rrn_value)
+                if "AMOUNT_STATEMENT" in df.columns:
+                    df["AMOUNT_STATEMENT"] = df["AMOUNT_STATEMENT"].apply(
+                        clean_rrn_value
+                    )
+
+            # Convert to string after cleaning
+            ledger_df["AMOUNT_LEDGER"] = ledger_df["AMOUNT_LEDGER"].astype(str)
+            statement_df["AMOUNT_STATEMENT"] = statement_df["AMOUNT_STATEMENT"].astype(
+                str
+            )
 
             REQUIRED_COLUMNS = [
                 "TRANS_REF_ID",
@@ -695,11 +723,10 @@ def vendorexcel_reconciliation(
                 "ACTUAL_TRANS_DATE",
                 "DATE",
             ]
-            # Count credit transactions
 
+            # Count credit transactions
             credit_trans = ledger_df[ledger_df["CREDIT"].notna()].copy()
-            credit_trans = credit_trans.drop(columns=["AMOUNT_LEDGER"])
-            credit_trans = credit_trans.rename(
+            credit_trans = credit_trans.drop(columns=["AMOUNT_LEDGER"]).rename(
                 columns={
                     "CREDIT": "AMOUNT_LEDGER",
                     "TRANS_REF_ID_LGR": "TRANS_REF_ID",
@@ -707,59 +734,63 @@ def vendorexcel_reconciliation(
                 }
             )
             credit_count = credit_trans.shape[0]
-            # print("credit", credit_trans.columns.to_list())
             credit_trans = safe_column_select(credit_trans, REQUIRED_COLUMNS)
-            # Define required columns
+
+            # Filter ledger and find mismatches
             ledger_filtered_df = ledger_df[
                 ledger_df["TRANS_REF_ID_LGR"].str.startswith("KM", na=False)
             ]
+
             # Find transactions not in statement
-            not_in_statement_df = ledger_filtered_df[
-                ~ledger_filtered_df["TRANS_REF_ID_LGR"].isin(
-                    statement_df["TRANS_REF_ID_STMT"]
-                )
-            ].copy()
-            not_in_statement_df = not_in_statement_df.rename(
-                columns={"TRANS_REF_ID_LGR": "TRANS_REF_ID"}
+            not_in_statement_df = (
+                ledger_filtered_df[
+                    ~ledger_filtered_df["TRANS_REF_ID_LGR"].isin(
+                        statement_df["TRANS_REF_ID_STMT"]
+                    )
+                ]
+                .copy()
+                .rename(columns={"TRANS_REF_ID_LGR": "TRANS_REF_ID"})
             )
-            # Add DATE column from ledger's Transaction Date
             not_in_statement_df["DATE"] = not_in_statement_df["TRANSACTION DATE"]
             not_in_statement_df = safe_column_select(
                 not_in_statement_df, REQUIRED_COLUMNS
             )
 
             # Find transactions not in ledger
-            not_in_ledger_df = statement_df[
-                ~statement_df["TRANS_REF_ID_STMT"].isin(ledger_df["TRANS_REF_ID_LGR"])
-            ].copy()
-            not_in_ledger_df = not_in_ledger_df.rename(
-                columns={"TRANS_REF_ID_STMT": "TRANS_REF_ID"}
+            not_in_ledger_df = (
+                statement_df[
+                    ~statement_df["TRANS_REF_ID_STMT"].isin(
+                        ledger_df["TRANS_REF_ID_LGR"]
+                    )
+                ]
+                .copy()
+                .rename(columns={"TRANS_REF_ID_STMT": "TRANS_REF_ID"})
             )
-            # Add DATE column from statement's Transaction Date (renamed as requested)
             not_in_ledger_df["DATE"] = not_in_ledger_df["TRANSACTION DATE"]
             not_in_ledger_df = safe_column_select(not_in_ledger_df, REQUIRED_COLUMNS)
 
-            # Merge dataframes
+            # Merge dataframes and find matches
             merged_df = ledger_df.merge(
                 statement_df,
                 left_on="TRANS_REF_ID_LGR",
                 right_on="TRANS_REF_ID_STMT",
                 how="inner",
-            )
-            merged_df = merged_df.rename(columns={"TRANS_REF_ID_LGR": "TRANS_REF_ID"})
+            ).rename(columns={"TRANS_REF_ID_LGR": "TRANS_REF_ID"})
 
-            # Find matching amounts
+            # Find matching amounts and failed transactions
             amount_match_df = merged_df[
                 merged_df["AMOUNT_LEDGER"] == merged_df["AMOUNT_STATEMENT"]
             ].copy()
+
             failed_trans = amount_match_df[
                 amount_match_df["TRANSACTION_STATUS"]
                 .str.lower()
                 .str.strip()
                 .str.contains("failure|transaction timed out|^na$", regex=True, na=True)
-                .fillna(False)  # This will include NaN values in the filter
+                .fillna(False)
             ]
-            # print(failed_trans.columns.to_list())
+
+            # Process credit rows and refund checks
             ledger_credit_rows = ledger_df[ledger_df["CREDIT"].notna()]
             ledger_credit_rows = ledger_credit_rows[
                 ledger_credit_rows["DESCRIPTION"].str.contains(
@@ -769,6 +800,7 @@ def vendorexcel_reconciliation(
             ledger_credit_rows["REF_NUMBER"] = ledger_credit_rows[
                 "DESCRIPTION"
             ].str.extract(r"REF-([A-Z0-9]+)-")
+
             credit_trans_not_in_statement = ledger_credit_rows[
                 ~ledger_credit_rows["REF_NUMBER"].isin(
                     statement_df["TRANS_REF_ID_STMT"]
@@ -779,27 +811,17 @@ def vendorexcel_reconciliation(
             )
 
             def standardize_dates(df, date_column="TRANS_DATE"):
-                # Create a copy to avoid SettingWithCopyWarning
                 result_df = df.copy()
-
-                # First, convert slash format (mm/dd/yyyy)
                 slash_dates = pd.to_datetime(
                     result_df[date_column], format="%m/%d/%Y", errors="coerce"
                 )
-
-                # Then, convert no-slash format (ddmmyyyy)
                 noslash_dates = pd.to_datetime(
                     result_df[date_column], format="%d%m%Y", errors="coerce"
                 )
-
-                # Combine both (noslash_dates will fill the NaN values from slash_dates)
                 standardized = slash_dates.fillna(noslash_dates)
-
-                # Format to yyyy-mm-dd
                 result_df["TRANS_DATE_STANDARDIZED"] = standardized.dt.strftime(
                     "%Y-%m-%d"
                 )
-
                 return result_df
 
             credit_trans_not_in_statement = standardize_dates(
@@ -807,9 +829,7 @@ def vendorexcel_reconciliation(
             )
             credit_trans_not_in_statement = credit_trans_not_in_statement.drop(
                 columns=["TRANS_DATE"]
-            )
-            print(credit_trans_not_in_statement.columns.to_list())
-            credit_trans_not_in_statement = credit_trans_not_in_statement.rename(
+            ).rename(
                 columns={
                     "CREDIT": "REFUNDED_AMOUNT",
                     "REF_NUMBER": "TRANS_REF_ID",
@@ -817,24 +837,25 @@ def vendorexcel_reconciliation(
                     "TRANS_DATE_STANDARDIZED": "ACTUAL_TRANS_DATE",
                 }
             )
-            # print(credit_trans_not_in_statement["ACTUAL_TRANS_DATE"])
             credit_trans_not_in_statement = safe_column_select(
                 credit_trans_not_in_statement, REQUIRED_COLUMNS
             )
-            # print(ledger_credit_rows["REF_NUMBER"])
+
+            # Refund checks
             refund_check = failed_trans.merge(
                 ledger_credit_rows[["REF_NUMBER", "CREDIT"]],
                 left_on="TRANS_REF_ID",
                 right_on="REF_NUMBER",
                 how="inner",
-            )
-            refund_check = refund_check.rename(columns={"CREDIT_y": "REFUNDED_AMOUNT"})
+            ).rename(columns={"CREDIT_y": "REFUNDED_AMOUNT"})
+
             refund_check["REFUNDED_AMOUNT"] = refund_check["REFUNDED_AMOUNT"].astype(
                 float
             )
             refund_check["AMOUNT_STATEMENT"] = refund_check["AMOUNT_STATEMENT"].astype(
                 float
             )
+
             refund_amount_match = refund_check[
                 refund_check["REFUNDED_AMOUNT"] == refund_check["AMOUNT_STATEMENT"]
             ]
@@ -844,19 +865,18 @@ def vendorexcel_reconciliation(
             refund_amount_mismatch = refund_amount_mismatch.rename(
                 columns={"TRANSACTION DATE_x": "DATE"}
             )
-            # print(refund_amount_mismatch.columns.to_list())
-            # Find amount mismatches
+
             refund_amount_match = safe_column_select(
                 refund_amount_match, REQUIRED_COLUMNS
             )
             refund_amount_mismatch = safe_column_select(
                 refund_amount_mismatch, REQUIRED_COLUMNS
             )
+
+            # Find amount mismatches
             amount_mismatch_rows = merged_df[
                 merged_df["AMOUNT_LEDGER"] != merged_df["AMOUNT_STATEMENT"]
             ].copy()
-
-            # Add DATE column to amount_mismatch_rows
             amount_mismatch_rows.loc[:, "DATE"] = amount_mismatch_rows[
                 "TRANSACTION DATE_x"
             ]
@@ -864,6 +884,7 @@ def vendorexcel_reconciliation(
                 amount_mismatch_rows, REQUIRED_COLUMNS
             )
 
+            # Process matched transactions
             if not amount_match_df.empty:
                 matched_count = amount_match_df.shape[0]
                 amount_match_df = amount_match_df.merge(
@@ -872,25 +893,38 @@ def vendorexcel_reconciliation(
                     how="left",
                     suffixes=("", "_REFUND"),
                 )
-                # Add DATE column to matched transactions
                 amount_match_df.loc[:, "DATE"] = amount_match_df["TRANSACTION DATE_x"]
                 merged_df = safe_column_select(amount_match_df, REQUIRED_COLUMNS)
+
+                failed_not_refunded = merged_df[
+                    merged_df["TRANSACTION_STATUS"].str.contains(
+                        "failure|transaction timed out", case=False, na=False
+                    )
+                    & merged_df["REFUNDED_AMOUNT"].isna()
+                ]
+                merged_df = merged_df[~merged_df.index.isin(failed_not_refunded.index)]
             else:
                 matched_count = 0
                 merged_df = pd.DataFrame(columns=REQUIRED_COLUMNS)
 
+            # Calculate failed count
             failed_count = (
                 not_in_statement_df.shape[0]
                 + not_in_ledger_df.shape[0]
                 + amount_mismatch_rows.shape[0]
                 + refund_amount_mismatch.shape[0]
             )
+
             logger.info("Vendor ledger reconciliation completed successfully.")
+
+            # Return results
             if (
                 not_in_ledger_df.empty
                 and not_in_statement_df.empty
                 and amount_mismatch_rows.empty
                 and credit_trans.empty
+                and refund_amount_mismatch.empty
+                and failed_not_refunded.empty
             ):
                 return {
                     "message": "No Mismatch...",
@@ -911,10 +945,10 @@ def vendorexcel_reconciliation(
                     "ledger_credit_count": credit_count,
                     "not_in_statement": not_in_statement_df,
                     "not_in_ledger": not_in_ledger_df,
-                    "ledger_count": ledger_count,
                     "amount_mismatch": amount_mismatch_rows,
                     "Credit_Trans_in_Ledger_not_in_Stmnt": credit_trans_not_in_statement,
                     "refund_amount_mismatch": refund_amount_mismatch,
+                    "failed_not_refunded": failed_not_refunded,
                 }
         elif service_name in ["LIC"]:
             """
@@ -925,7 +959,6 @@ def vendorexcel_reconciliation(
             statement_df = pd.read_excel(
                 vendor_statement, dtype={"IMWTID": str, "AMOUNT": str}
             )
-
             ledger_df = pd.read_excel(
                 vendor_ledger,
                 dtype={"TID": str, "REFERENCE TID": str, "DR": str, "CR": str},
@@ -951,29 +984,19 @@ def vendorexcel_reconciliation(
             )
 
             # === Standardize TID columns as strings ===
-            tid_columns = {
-                "statement": ["STMT_TID"],
-                "ledger": ["LDG_TID", "REFERENCE TID"],
-            }
-
-            for col in tid_columns["statement"]:
+            for col in ["STMT_TID"]:
                 statement_df[col] = statement_df[col].astype(str).str.strip()
 
-            for col in tid_columns["ledger"]:
+            for col in ["LDG_TID", "REFERENCE TID"]:
                 ledger_df[col] = ledger_df[col].astype(str).str.strip()
 
             # === Clean and convert numeric columns ===
-            numeric_columns = {
-                "statement": ["STMT_AMOUNT"],
-                "ledger": ["LDG_AMOUNT", "COMM_AMT"],
-            }
-
-            for col in numeric_columns["statement"]:
+            for col in ["STMT_AMOUNT"]:
                 statement_df[col] = pd.to_numeric(
                     statement_df[col].astype(str).str.strip(), errors="coerce"
                 )
 
-            for col in numeric_columns["ledger"]:
+            for col in ["LDG_AMOUNT", "COMM_AMT"]:
                 ledger_df[col] = pd.to_numeric(
                     ledger_df[col].astype(str).str.strip(), errors="coerce"
                 )
@@ -989,10 +1012,12 @@ def vendorexcel_reconciliation(
             ]
 
             # Find unmatched transactions
-            not_in_ledger_df = statement_df[
-                ~statement_df["STMT_TID"].isin(ledger_df["LDG_TID"])
-            ].copy()
-            not_in_ledger_df = not_in_ledger_df.rename(columns={"STMT_TID": "LDG_TID"})
+            not_in_ledger_df = (
+                statement_df[~statement_df["STMT_TID"].isin(ledger_df["LDG_TID"])]
+                .copy()
+                .rename(columns={"STMT_TID": "LDG_TID"})
+            )
+
             not_in_statement_df = ledger_df[
                 ~ledger_df["LDG_TID"].isin(statement_df["STMT_TID"])
             ].copy()
@@ -1004,10 +1029,12 @@ def vendorexcel_reconciliation(
                 right_on="STMT_TID",
                 how="inner",
             )
+
             amount_matched_df = matched_df[
                 matched_df["LDG_AMOUNT"] == matched_df["STMT_AMOUNT"]
             ]
             amount_matched_df = safe_column_select(amount_matched_df, REQUIRED_COLUMNS)
+
             # Amount mismatches
             amount_mismatch_rows = matched_df[
                 matched_df["LDG_AMOUNT"] != matched_df["STMT_AMOUNT"]
@@ -1029,8 +1056,6 @@ def vendorexcel_reconciliation(
                 amount_matched_df["LDG_TID"].astype(str).str.strip()
             )
 
-            # Final unmatched statements
-
             # Merge commission transactions
             matched_trans_comm_df = amount_matched_df.merge(
                 commission_match_df,
@@ -1045,6 +1070,7 @@ def vendorexcel_reconciliation(
                     "LDG_TID_y": "COMMISSION_TID",
                 }
             )
+
             amount_mismatch_comm_df = amount_mismatch_rows.merge(
                 not_in_statement_df,
                 left_on="LDG_TID",
@@ -1058,6 +1084,7 @@ def vendorexcel_reconciliation(
                     "LDG_TID_y": "COMMISSION_TID",
                 }
             )
+
             amount_mismatch_comm_df = safe_column_select(
                 amount_mismatch_comm_df, REQUIRED_COLUMNS
             )
@@ -1065,6 +1092,8 @@ def vendorexcel_reconciliation(
                 matched_trans_comm_df, REQUIRED_COLUMNS
             )
             not_in_ledger_df = safe_column_select(not_in_ledger_df, REQUIRED_COLUMNS)
+
+            # Final unmatched statements
             not_in_statement_final_df = not_in_statement_df[
                 ~not_in_statement_df["LDG_TID"].isin(
                     matched_trans_comm_df["COMMISSION_TID"]
@@ -1075,7 +1104,6 @@ def vendorexcel_reconciliation(
                     amount_mismatch_comm_df["COMMISSION_TID"]
                 )
             ].copy()
-            # print(not_in_statement_final_df.head(5))
             not_in_statement_final_df = safe_column_select(
                 not_in_statement_final_df, REQUIRED_COLUMNS
             )
@@ -1093,6 +1121,7 @@ def vendorexcel_reconciliation(
             ledger_count = ledger_df.shape[0]
 
             logger.info("Vendor ledger reconciliation completed successfully.")
+
             # Prepare response
             result_data = {
                 "matching_trans": matched_trans_comm_df,
@@ -1127,6 +1156,7 @@ def vendorexcel_reconciliation(
             """
             statement_df.columns = statement_df.columns.str.strip().str.upper()
             ledger_df.columns = ledger_df.columns.str.strip().str.upper()
+
             statement_df = statement_df.rename(
                 columns={
                     "REFERENCE NO": "STMT_REFERENCE_NO",
@@ -1141,12 +1171,14 @@ def vendorexcel_reconciliation(
                     "LOT DATE": "LEDGER_DATE",
                 }
             )
+
             failed_rows = (
                 statement_df["PAYMENT STATUS"]
                 == "Payment Refunded due to Incomplete Application"
             )
             failed_df = statement_df[failed_rows].copy()
             cleaned_statement_df = statement_df[~failed_rows].copy()
+
             REQUIRED_COLUMNS = [
                 "LDG_REFERENCE_NO",
                 "STMT_REFERENCE_NO",
@@ -1155,18 +1187,21 @@ def vendorexcel_reconciliation(
                 "LEDGER_DATE",
                 "STATEMENT_DATE",
             ]
+
             cleaned_statement_df["STMT_REFERENCE_NO"] = (
                 cleaned_statement_df["STMT_REFERENCE_NO"].astype(str).str.strip()
             )
             ledger_df["LDG_REFERENCE_NO"] = (
                 ledger_df["LDG_REFERENCE_NO"].astype(str).str.strip()
             )
+
             not_in_ledger_df = cleaned_statement_df[
                 ~cleaned_statement_df["STMT_REFERENCE_NO"].isin(
                     ledger_df["LDG_REFERENCE_NO"]
                 )
             ].copy()
             not_in_ledger_df = safe_column_select(not_in_ledger_df, REQUIRED_COLUMNS)
+
             not_in_statement_df = ledger_df[
                 ~ledger_df["LDG_REFERENCE_NO"].isin(
                     cleaned_statement_df["STMT_REFERENCE_NO"]
@@ -1175,6 +1210,7 @@ def vendorexcel_reconciliation(
             not_in_statement_df = safe_column_select(
                 not_in_statement_df, REQUIRED_COLUMNS
             )
+
             merged_df = ledger_df.merge(
                 cleaned_statement_df,
                 left_on="LDG_REFERENCE_NO",
@@ -1182,13 +1218,16 @@ def vendorexcel_reconciliation(
                 how="inner",
             )
             matched_df = safe_column_select(merged_df, REQUIRED_COLUMNS)
+
             matched_count = matched_df.shape[0]
             failed_count = (
                 not_in_ledger_df.shape[0]
                 + not_in_statement_df.shape[0]
                 + failed_df.shape[0]
             )
+
             logger.info("Vendor ledger reconciliation completed successfully.")
+
             # Prepare response
             result_data = {
                 "matching_trans": matched_df,
@@ -1197,6 +1236,7 @@ def vendorexcel_reconciliation(
                 "matched_trans_count": matched_count,
                 "failed_trans_count": failed_count,
             }
+
             if not (not_in_ledger_df.empty and not_in_statement_df.empty):
                 result_data.update(
                     {
@@ -1216,29 +1256,29 @@ def vendorexcel_reconciliation(
             statement_df.columns = statement_df.columns.str.strip().str.upper()
             ledger_df.columns = ledger_df.columns.str.strip().str.upper()
             statement_df["STATUS"] = statement_df["STATUS"].str.strip().str.lower()
-            # Convert date columns to datetime
 
+            # Convert date columns to datetime
             statement_df["BOOKED DATE"] = pd.to_datetime(
                 statement_df["BOOKED DATE"], format="%d-%m-%Y %H:%M"
             )
             ledger_df["BALANCE DATE"] = pd.to_datetime(
                 ledger_df["BALANCE DATE"], format="%d-%m-%Y"
             )
-            # ledger_df["USED AMOUNT"] = ledger_df["USED AMOUNT"].abs()
-            # --- Step 1: Calculate FINAL_AMOUNT in statement_df ---
+
+            # Calculate FINAL_AMOUNT in statement_df
             statement_df["FINAL_AMOUNT"] = (
                 statement_df["TICKET AMOUNT"] + statement_df["SERVICE TAX"]
             ) - (statement_df["COMM."] - statement_df["COMM TDS"])
 
-            # --- Step 2: Extract only date (ignore time) ---
+            # Extract only date (ignore time)
             statement_df["BOOKED_DATE_ONLY"] = statement_df["BOOKED DATE"].dt.date
             ledger_df["BALANCE_DATE_ONLY"] = ledger_df["BALANCE DATE"].dt.date
 
+            # Group and pivot statement data
             grouped = statement_df.groupby(
                 ["BOOKED_DATE_ONLY", "STATUS"], as_index=False
             )["FINAL_AMOUNT"].sum()
 
-            # Pivot so SUCCESS and FAILED become columns
             pivoted = grouped.pivot_table(
                 index="BOOKED_DATE_ONLY",
                 columns="STATUS",
@@ -1250,13 +1290,10 @@ def vendorexcel_reconciliation(
             pivoted["AMOUNT_STATEMENT"] = pivoted.get("success", 0) - pivoted.get(
                 "failed", 0
             )
-
-            # Keep only date + net amount for comparison
             group_by_date = pivoted[["BOOKED_DATE_ONLY", "AMOUNT_STATEMENT"]]
             group_by_date.columns = ["DATE", "AMOUNT_STATEMENT"]
 
-            # print(group_by_date[["DATE","AMOUNT_STATEMENT"]])
-
+            # Group ledger data
             ledger_group = (
                 ledger_df.assign(USED_AMOUNT_ABS=ledger_df["USED AMOUNT"])
                 .groupby("BALANCE_DATE_ONLY", as_index=False)["USED_AMOUNT_ABS"]
@@ -1264,15 +1301,12 @@ def vendorexcel_reconciliation(
             )
             ledger_group.columns = ["DATE", "AMOUNT_LEDGER"]
 
-            # --- Step 4: Merge grouped totals for comparison ---
+            # Merge grouped totals for comparison
             comparison_df = pd.merge(
                 group_by_date, ledger_group, on="DATE", how="outer"
-            )
+            ).fillna(0)
 
-            # --- Step 4.1: Fill missing values with 0 ---
-            comparison_df = comparison_df.fillna(0)
-
-            # --- Step 5: Flag match/mismatch with tolerance ---
+            # Flag match/mismatch with tolerance
             comparison_df["MAPPING_STATUS"] = np.where(
                 np.isclose(
                     comparison_df["AMOUNT_STATEMENT"],
@@ -1284,8 +1318,7 @@ def vendorexcel_reconciliation(
                 "MISMATCHED",
             )
 
-            # print(comparison_df[["DATE", "AMOUNT_STATEMENT", "AMOUNT_LEDGER", "MAPPING_STATUS"]])
-            # --- Step 6: Attach STATUS back to original statement_df ---
+            # Attach STATUS back to original statement_df
             statement_with_status = statement_df.merge(
                 comparison_df[
                     ["DATE", "MAPPING_STATUS", "AMOUNT_STATEMENT", "AMOUNT_LEDGER"]
@@ -1294,6 +1327,7 @@ def vendorexcel_reconciliation(
                 right_on="DATE",
                 how="left",
             )
+
             REQUIRED_COLUMNS = [
                 "TKT. NUMBER",
                 "AMOUNT_LEDGER",
@@ -1306,18 +1340,23 @@ def vendorexcel_reconciliation(
                 "FINAL_AMOUNT",
                 "MAPPING_STATUS",
             ]
-            # --- Step 7: Split into matched/mismatched dataframes with original rows ---
+
+            # Split into matched/mismatched dataframes
             matched_df = statement_with_status[
                 statement_with_status["MAPPING_STATUS"] == "MATCHED"
             ]
             mismatched_df = statement_with_status[
                 statement_with_status["MAPPING_STATUS"] == "MISMATCHED"
             ]
+
             matched_df = safe_column_select(matched_df, REQUIRED_COLUMNS)
             mismatched_df = safe_column_select(mismatched_df, REQUIRED_COLUMNS)
+
             credit_count = ledger_df[ledger_df["USED AMOUNT"] < 0].shape[0]
+
             print(matched_df)
             print(mismatched_df)
+
             result_data = {
                 "ledger_count": ledger_count,
                 "statement_count": statement_count,
@@ -1326,16 +1365,13 @@ def vendorexcel_reconciliation(
                 "failed_trans_count": mismatched_df.shape[0],
                 "matching_trans": matched_df,
             }
-            if not (mismatched_df.empty):
-                result_data.update(
-                    {
-                        "amount_mismatch": mismatched_df,
-                    }
-                )
+
+            if not mismatched_df.empty:
+                result_data.update({"amount_mismatch": mismatched_df})
             else:
                 result_data["message"] = "No Mismatch..."
-            return result_data
 
+            return result_data
         else:
             logger.warning(
                 f"Service {service_name} not supported for vendor ledger reconciliation."
