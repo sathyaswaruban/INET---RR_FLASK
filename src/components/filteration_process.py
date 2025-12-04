@@ -165,14 +165,14 @@ def service_selection(
                 start_date, end_date, service_name, transaction_type
             )
         elif service_name == "PANNSDL":
-            hub_data,pan_nsdl_iti_df = service_config["service_func"](
+            hub_data, pan_nsdl_iti_df = service_config["service_func"](
                 start_date, end_date, service_name
             )
         else:
             hub_data = service_config["service_func"](
                 start_date, end_date, service_name
             )
-        return filtering_Data(hub_data, df_excel, service_name,pan_nsdl_iti_df)
+        return filtering_Data(hub_data, df_excel, service_name, pan_nsdl_iti_df)
 
     except Exception as e:
         logger.error(f"Error processing {service_name} service: {str(e)}")
@@ -212,7 +212,7 @@ def unified_filtering_data(
         df_excel[status_column_excel] = (
             df_excel[status_column_excel].astype(str).str.strip()
         )
-        df_excel["VENDOR_AMOUNT"] = (df_excel["VENDOR_AMOUNT"].astype(float))
+        df_excel["VENDOR_AMOUNT"] = df_excel["VENDOR_AMOUNT"].astype(float)
         # Preprocess dates
         if "VENDOR_DATE" in df_excel.columns:
             df_excel["VENDOR_DATE"] = pd.to_datetime(
@@ -222,7 +222,11 @@ def unified_filtering_data(
             df_db["SERVICE_DATE"] = pd.to_datetime(
                 df_db["SERVICE_DATE"], errors="coerce"
             ).dt.strftime("%Y-%m-%d")
-        if pan_nsdl_iti_df is not None and not pan_nsdl_iti_df.empty and "SERVICE_DATE" in pan_nsdl_iti_df.columns:
+        if (
+            pan_nsdl_iti_df is not None
+            and not pan_nsdl_iti_df.empty
+            and "SERVICE_DATE" in pan_nsdl_iti_df.columns
+        ):
             pan_nsdl_iti_df["SERVICE_DATE"] = pd.to_datetime(
                 pan_nsdl_iti_df["SERVICE_DATE"], errors="coerce"
             ).dt.strftime("%Y-%m-%d")
@@ -290,20 +294,33 @@ def unified_filtering_data(
         # ITI Matching for PANNSDL
         iti_Matched = pd.DataFrame()
         if service_name == "PANNSDL" and not pan_nsdl_iti_df.empty:
-            pan_nsdl_iti_df["VENDOR_REFERENCE"] = pan_nsdl_iti_df["VENDOR_REFERENCE"].astype(str).str.strip()
+            pan_nsdl_iti_df["VENDOR_REFERENCE"] = (
+                pan_nsdl_iti_df["VENDOR_REFERENCE"].astype(str).str.strip()
+            )
             # ITI Matched
-            iti_Matched = pan_nsdl_iti_df[pan_nsdl_iti_df["VENDOR_REFERENCE"].isin(not_in_portal["REFID"])].copy()
+            iti_Matched = pan_nsdl_iti_df[
+                pan_nsdl_iti_df["VENDOR_REFERENCE"].isin(not_in_portal["REFID"])
+            ].copy()
             iti_Matched["CATEGORY"] = "MATCHED_IN_ITI"
-            iti_Matched["service_status"] = iti_Matched["service_status"].astype(str).str.lower().replace({"1":"success","2":"intiated","3":"failed"})
-            iti_Matched = iti_Matched.rename(columns={"VENDOR_REFERENCE": "REFID","service_status" :"ITI_PAN_NSDL_STATUS"})
+            iti_Matched["service_status"] = (
+                iti_Matched["service_status"]
+                .astype(str)
+                .str.lower()
+                .replace({"1": "success", "2": "intiated", "3": "failed"})
+            )
+            iti_Matched = iti_Matched.rename(
+                columns={
+                    "VENDOR_REFERENCE": "REFID",
+                    "service_status": "ITI_PAN_NSDL_STATUS",
+                }
+            )
             iti_Matched = iti_Matched.merge(
-                df_excel,
-                on="REFID",
-                how="inner",
-                suffixes=("_ITI", "_EXCEL")
+                df_excel, on="REFID", how="inner", suffixes=("_ITI", "_EXCEL")
             )
             iti_Matched = safe_column_select(iti_Matched, required_columns)
-            not_in_portal = not_in_portal[~not_in_portal["REFID"].isin(iti_Matched["REFID"])]
+            not_in_portal = not_in_portal[
+                ~not_in_portal["REFID"].isin(iti_Matched["REFID"])
+            ]
 
         # Matched
         matched = df_db.merge(
@@ -570,9 +587,22 @@ def unified_filtering_data(
 
 # ---------------------------------------------------------------------------------
 # Filtering Function
-def filtering_Data(df_db, df_excel, service_name,pan_nsdl_iti_df=None):
+def filtering_Data(df_db, df_excel, service_name, pan_nsdl_iti_df=None):
 
     # Use the unified filtering function with parameters matching the old logic
+    if service_name == "ABHIBUS":
+        print(df_excel["VENDOR_AMOUNT"])
+        df_excel["VENDOR_AMOUNT"] = pd.to_numeric(
+            df_excel["VENDOR_AMOUNT"], errors="coerce"
+        )
+        df_excel["Service Tax"] = pd.to_numeric(
+            df_excel["Service Tax"], errors="coerce"
+        )
+
+        df_excel["VENDOR_AMOUNT"] = df_excel["VENDOR_AMOUNT"] + df_excel["Service Tax"]
+
+        print(df_excel["VENDOR_AMOUNT"])
+
     if service_name in ["PASSPORT", "INSURANCE_OFFLINE"]:
         required_columns = [
             "CATEGORY",

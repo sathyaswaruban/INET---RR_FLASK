@@ -17,8 +17,8 @@ app.secret_key = "inet_secret_key"
 
 
 # Configure CORS
-# CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
-CORS(app, supports_credentials=True, origins=["http://192.168.1.157:8300"])
+CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+# CORS(app, supports_credentials=True, origins=["http://192.168.1.157:8300"])
 
 
 # Constants
@@ -36,8 +36,9 @@ def validate_request(request) -> Optional[Dict[str, Any]]:
         return {"error": f"Missing required fields: {', '.join(missing_fields)}"}, 400
 
     # Check file upload
-    if "file" not in request.files or not request.files["file"].filename:
-        return {"error": "No file uploaded"}, 400
+    if request.form["service_name"] != "IRCTC":
+        if "file" not in request.files or not request.files["file"].filename:
+            return {"error": "No file uploaded"}, 400
     return None
 
 
@@ -184,14 +185,14 @@ def reconciliation() -> tuple:
         # Validate request
         if error_response := validate_request(request):
             return jsonify(error_response[0]), error_response[1]
-
-        # Extract request data
         request_data = {
             "from_date": request.form["from_date"],
             "to_date": request.form["to_date"],
             "service_name": request.form["service_name"],
             "transaction_type": request.form.get("transaction_type"),
-            "file": request.files["file"],
+            "file": (
+                request.files.get("file") if request.files else None
+            ),  # Use .get() to avoid KeyError
         }
 
         # Process reconciliation
@@ -281,5 +282,5 @@ def get_ebo_detailed_data() -> tuple:
         return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
 
 
-# if __name__ == "__main__":
-#     app.run(debug=True, host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)

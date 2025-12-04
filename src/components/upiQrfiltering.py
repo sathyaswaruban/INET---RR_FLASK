@@ -22,6 +22,7 @@ DB_RETRY_CONFIG = {
     "reraise": True,
 }
 
+
 @retry(**DB_RETRY_CONFIG)
 def execute_sql_with_retry(query, params=None):
     logger.info("Entered helper function to execute SQL with retry logic")
@@ -39,7 +40,9 @@ def upiQr_service_selection(start_date, end_date, service_name, df_excel):
         logger.info(f"Entering Reconciliation for {service_name} Service")
         if service_name == "UPIQR":
             if "Unique_ID" in df_excel:
-                hub_data,initial_hub_data = UpiQr_Service(start_date, end_date, service_name)
+                hub_data, initial_hub_data = UpiQr_Service(
+                    start_date, end_date, service_name
+                )
                 # print("Hub data",initial_hub_data["REFERENCE_NO"].to_list())
                 df_excel["VENDOR_STATUS"] = (
                     df_excel["VENDOR_STATUS"]
@@ -48,7 +51,9 @@ def upiQr_service_selection(start_date, end_date, service_name, df_excel):
                         lambda x: "success" if x.lower() == "authorised" else "failed"
                     )
                 )
-                result = filtering_Data(hub_data, initial_hub_data,df_excel, service_name)
+                result = filtering_Data(
+                    hub_data, initial_hub_data, df_excel, service_name
+                )
             else:
                 logger.warning("Wrong File Uploaded for UPIQR function")
                 message = "Wrong File Updloaded...!"
@@ -63,7 +68,7 @@ def upiQr_service_selection(start_date, end_date, service_name, df_excel):
         print("Error in inward function :", e)
 
 
-def filtering_Data(df_db, initial_hub_data,df_excel, service_name):
+def filtering_Data(df_db, initial_hub_data, df_excel, service_name):
     try:
         logger.info(f"Filteration Starts for {service_name} service")
         mapping = None
@@ -130,11 +135,16 @@ def filtering_Data(df_db, initial_hub_data,df_excel, service_name):
         bank_ref_not_updated = initial_hub_data[
             (
                 (initial_hub_data["VENDOR_REFERENCE"].astype(str) == "0")
-                | (initial_hub_data["VENDOR_REFERENCE"].astype(str).str.lower() == "nan")
+                | (
+                    initial_hub_data["VENDOR_REFERENCE"].astype(str).str.lower()
+                    == "nan"
+                )
             )
             & (~initial_hub_data["REFERENCE_NO"].isna())
         ].copy()
-        bank_ref_not_updated = bank_ref_not_updated[bank_ref_not_updated["REFERENCE_NO"].isin(df_excel["Unique_ID"])].copy()
+        bank_ref_not_updated = bank_ref_not_updated[
+            bank_ref_not_updated["REFERENCE_NO"].isin(df_excel["Unique_ID"])
+        ].copy()
         bank_ref_not_updated["CATEGORY"] = "BANK_REF_NOT_UPDATED"
         bank_ref_not_updated = bank_ref_not_updated.rename(
             columns={"Settled_Amount": "AMOUNT", "Unique_ID": "REFERENCE_NO"}
@@ -146,8 +156,9 @@ def filtering_Data(df_db, initial_hub_data,df_excel, service_name):
             how="left",
             suffixes=("", "_VEND"),
         )
-        print("Bank ref not updated",bank_ref_not_updated.columns.to_list())
-        bank_ref_not_updated = safe_column_select(bank_ref_not_updated, required_columns)
+        bank_ref_not_updated = safe_column_select(
+            bank_ref_not_updated, required_columns
+        )
         # 1 Filtering Data initiated in IHUB portal and not in Vendor Xl
         not_in_vendor = df_db[~df_db["REFERENCE_NO"].isin(df_excel["Unique_ID"])].copy()
         not_in_vendor["CATEGORY"] = "NOT_IN_VENDOR"
@@ -447,11 +458,12 @@ def UpiQr_Service(start_date, end_date, service_name):
         )
         merged_manual["MERGE_TYPE"] = "MANUAL_REFUND"
         merged_manual = merged_manual.drop_duplicates(subset=["REFERENCE_NO"])
-        
+
         # --- Combine final results ---
         result = pd.concat([merged_auto, merged_manual], ignore_index=True)
         result["SERVICE_NAME"] = result["ServiceName"].fillna(service_name)
         result.drop(columns=["ServiceName"], inplace=True, errors="ignore")
+
         # print("before removing Dup",result["REFERENCE_NO"].to_list())
         # --- Drop duplicate VENDOR_REFERENCE rows having both NaN in TRANSACTION_TYPE and EBO_WALLET_CREDIT ---
         def drop_invalid_duplicates(df):

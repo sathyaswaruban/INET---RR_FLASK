@@ -4,6 +4,8 @@ from logger_config import logger
 from components.upiQrfiltering import upiQr_service_selection
 from components.upservices import up_service_selection
 from components.iti_imps import imps_service_function
+from components.bbps_data_entry import bbps_data_entry
+from components.IRCTC import irctc
 
 # Define service configurations as constants
 SERVICE_CONFIGS = {
@@ -37,6 +39,7 @@ SERVICE_CONFIGS = {
             "SERIALNUMBER": "REFID",
             "ADDEDDATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
+            "AMOUNT": "VENDOR_AMOUNT",
         },
         "required_columns": ["SERIALNUMBER"],
     },
@@ -97,7 +100,7 @@ SERVICE_CONFIGS = {
     "UPIQR": {
         "columns": {
             "TRNSCTN_NMBR": "REFID",
-            "ATHRSD_DATE": "VENDOR_DATE",
+            "CRTD_DATE": "VENDOR_DATE",
             "STATUS": "VENDOR_STATUS",
             "Settled_Amount": "VENDOR_AMOUNT",
         },
@@ -192,6 +195,15 @@ SERVICE_CONFIGS = {
         "required_columns": ["UTR Number"],
         # "date_format": "%d-%m-%Y %H:%M:%S",
     },
+    "BBPS_DATA_ENTRY": {
+        "columns": {
+            "NPCI Ref NO": "HeadReferenceId",
+            "Transaction Ref ID": "TxnRefId",
+            "NPCI Transaction Desc": "TransactionStatusType",
+        },
+        "required_columns": ["NPCI Ref NO"],
+        # "date_format": "%d-%m-%Y %H:%M:%S",
+    },
 }
 
 UPPS_SERVICES = {
@@ -203,7 +215,7 @@ UPPS_SERVICES = {
 }
 
 
-def process_date_columns(df, service_name, service_config):
+def process_date_columns(df, service_config):
     try:
         if "VENDOR_DATE" in df:
             date_params = {
@@ -246,7 +258,9 @@ def main(from_date, to_date, service_name, file, transaction_type=None):
     try:
         logger.info("--------------------------------------------")
         logger.info("Entered Main Function...")
-
+        if service_name == "IRCTC":
+            logger.info(f"Ihub service: {service_name}")
+            return irctc(from_date, to_date, service_name)
         # Validate service name
         if service_name not in SERVICE_CONFIGS:
             logger.warning("Error in Service name..!")
@@ -266,6 +280,10 @@ def main(from_date, to_date, service_name, file, transaction_type=None):
         else:
             # Rename columns based on service configuration
             df_excel = df_excel.rename(columns=service_config["columns"])
+        # calling bbps data entry fun
+        if service_name == "BBPS_DATA_ENTRY":
+            logger.info(f"Ihub service: {service_name}")
+            return bbps_data_entry(from_date, to_date, service_name, df_excel)
 
         if service_name in ["INSURANCE_OFFLINE", "SULTANPUR_IS", "CHITRAKOOT_IS"]:
             if service_name == "INSURANCE_OFFLINE":
@@ -274,7 +292,7 @@ def main(from_date, to_date, service_name, file, transaction_type=None):
                 df_excel["REFID"] = df_excel["REFID"].astype(str).str.slice(1, 11)
         # print(df_excel["REFID"].head(5))
         # Process date columns
-        df_excel = process_date_columns(df_excel, service_name, service_config)
+        df_excel = process_date_columns(df_excel, service_config)
 
         # Convert input dates
         from_date = pd.to_datetime(from_date).date()

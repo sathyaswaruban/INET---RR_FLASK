@@ -351,7 +351,7 @@ def Bbps_service(start_date, end_date, service_name):
     # Step 2: Load flags
     query = text(
         f"""
-        SELECT DISTINCT id FROM ihubcore.BBPS_BillFetch WHERE  DATE(creationTs) BETWEEN :start_date AND :end_date
+        SELECT DISTINCT HeadReferenceId FROM ihubcore.BBPS_BillFetch WHERE  DATE(creationTs) BETWEEN :start_date AND :end_date
     """
     )
     bbps_fetch_ids = execute_sql_with_retry(query, params=params)
@@ -371,7 +371,7 @@ def Bbps_service(start_date, end_date, service_name):
     )
     core_df["BILL_FETCH_STATUS"] = (
         core_df["HeadReferenceId"]
-        .isin(bbps_fetch_ids["id"])
+        .isin(bbps_fetch_ids["HeadReferenceId"])
         .map({True: "Yes", False: "No"})
     )
     core_df["TENANT_LEDGER_STATUS"] = (
@@ -786,20 +786,37 @@ def passport_service(start_date, end_date, service_name):
             ebo_previous_df = execute_sql_with_retry(query_previous_ebo, params=params)
             if not ebo_previous_df.empty:
                 # Create mapping and mask
-                ebo_mapping = ebo_previous_df.set_index('MasterTransactionsId')[
-                    ['TRANSACTION_CREDIT', 'TRANSACTION_DEBIT', 'COMMISSION_CREDIT', 'COMMISSION_REVERSAL']
+                ebo_mapping = ebo_previous_df.set_index("MasterTransactionsId")[
+                    [
+                        "TRANSACTION_CREDIT",
+                        "TRANSACTION_DEBIT",
+                        "COMMISSION_CREDIT",
+                        "COMMISSION_REVERSAL",
+                    ]
                 ]
-                
-                update_mask = result['TENANT_MASTER_TRANSACTION_ID'].isin(ebo_mapping.index)
-                
+
+                update_mask = result["TENANT_MASTER_TRANSACTION_ID"].isin(
+                    ebo_mapping.index
+                )
+
                 if update_mask.any():
                     # Get indices of matching rows for efficient updating
                     matching_indices = result[update_mask].index
-                    matching_tmt_ids = result.loc[update_mask, 'TENANT_MASTER_TRANSACTION_ID']
-                    
+                    matching_tmt_ids = result.loc[
+                        update_mask, "TENANT_MASTER_TRANSACTION_ID"
+                    ]
+
                     # Batch update all columns at once
                     updated_values = ebo_mapping.loc[matching_tmt_ids].values
-                    result.loc[update_mask, ['TRANSACTION_CREDIT', 'TRANSACTION_DEBIT', 'COMMISSION_CREDIT', 'COMMISSION_REVERSAL']] = updated_values
+                    result.loc[
+                        update_mask,
+                        [
+                            "TRANSACTION_CREDIT",
+                            "TRANSACTION_DEBIT",
+                            "COMMISSION_CREDIT",
+                            "COMMISSION_REVERSAL",
+                        ],
+                    ] = updated_values
     except SQLAlchemyError as e:
         logger.error(f"Database error in Passport_service(): {e}")
     except Exception as e:
@@ -1251,6 +1268,35 @@ def manualTB_sevice(start_date, end_date, service_name):
         logger.error(f"Database error in manualTB_service(): {e}")
     except Exception as e:
         logger.error(f"Unexpected error in manualTB_service(): {e}")
+    return result
+
+
+def bbps_data_entry(start_date, end_date, service_name, df_excel):
+    logger.info(f"Fetching data from HUB for {service_name}")
+    result = pd.DataFrame()
+    query = text(
+        """
+       SELECT bbf.Id as BBPS_BillFetchId,bbf.BBPS_BillerDetailId,bbf.CustomerMobile,bbf.BillAmount as Amount,bbf.CreationTs   from ihubcore.BBPS_BillFetch bbf where DATE(bbf.CreationTs) BETWEEN :start_date and :end_date                 
+"""
+    )
+    params = {"start_date": start_date, "end_date": end_date}
+    try:
+        df_db = execute_sql_with_retry(query, params=params)
+        if df_db.empty:
+            logger.warning(f"No data returned for service: {service_name}")
+            return pd.DataFrame()
+
+        result = pd.merge(
+            df_excel[["TxnRefId", "HeadReferenceId"]],  # only needed cols from Excel
+            df_db,
+            left_on="HeadReferenceId",
+            right_on="HeadReferenceId_d",
+            how="inner",
+        )
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in bbps_data_entry(): {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error in bbps_data_entry(): {e}")
     return result
 
 
