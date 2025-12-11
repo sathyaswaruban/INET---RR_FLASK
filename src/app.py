@@ -17,8 +17,8 @@ app.secret_key = "inet_secret_key"
 
 
 # Configure CORS
-CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
-# CORS(app, supports_credentials=True, origins=["http://192.168.1.157:8300"])
+# CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+CORS(app, supports_credentials=True, origins=["http://192.168.1.157:8300"])
 
 
 # Constants
@@ -282,5 +282,5 @@ def get_ebo_detailed_data() -> tuple:
         return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
 
 
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+# if __name__ == "__main__":
+#     app.run(debug=True, host="0.0.0.0", port=5000)

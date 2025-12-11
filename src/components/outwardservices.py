@@ -1036,6 +1036,7 @@ def insurance_offline_service(start_date, end_date, service_name):
             3: "Completed",
             4: "Rejected",
         }
+        df_db["VENDOR_REFERENCE"] = df_db["VENDOR_REFERENCE"].str.strip()
         df_db = map_status_column(
             df_db,
             "service_status",

@@ -591,7 +591,6 @@ def filtering_Data(df_db, df_excel, service_name, pan_nsdl_iti_df=None):
 
     # Use the unified filtering function with parameters matching the old logic
     if service_name == "ABHIBUS":
-        print(df_excel["VENDOR_AMOUNT"])
         df_excel["VENDOR_AMOUNT"] = pd.to_numeric(
             df_excel["VENDOR_AMOUNT"], errors="coerce"
         )
@@ -600,8 +599,6 @@ def filtering_Data(df_db, df_excel, service_name, pan_nsdl_iti_df=None):
         )
 
         df_excel["VENDOR_AMOUNT"] = df_excel["VENDOR_AMOUNT"] + df_excel["Service Tax"]
-
-        print(df_excel["VENDOR_AMOUNT"])
 
     if service_name in ["PASSPORT", "INSURANCE_OFFLINE"]:
         required_columns = [
