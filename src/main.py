@@ -229,7 +229,6 @@ def process_date_columns(df, service_config):
             df["VENDOR_DATE"] = pd.to_datetime(df["VENDOR_DATE"], **date_params).dt.date
 
     except Exception as e:
-        print(e)
         logger.error("Error in Date_Processing(): %s", str(e))
     return df
 

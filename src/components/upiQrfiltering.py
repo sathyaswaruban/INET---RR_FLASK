@@ -65,7 +65,8 @@ def upiQr_service_selection(start_date, end_date, service_name, df_excel):
 
         return result
     except Exception as e:
-        print("Error in inward function :", e)
+        # print("Error in inward function :", e)
+        logger.warning("InwardService  function selection Error ")
 
 
 def filtering_Data(df_db, initial_hub_data, df_excel, service_name):
@@ -131,7 +132,7 @@ def filtering_Data(df_db, initial_hub_data, df_excel, service_name):
             "EBO_WALLET_CREDIT",
             "TRANSACTION_TYPE",
         ]
-        print(initial_hub_data.columns.tolist())
+        # print(initial_hub_data.columns.tolist())
         bank_ref_not_updated = initial_hub_data[
             (
                 (initial_hub_data["VENDOR_REFERENCE"].astype(str) == "0")
@@ -326,7 +327,7 @@ def filtering_Data(df_db, initial_hub_data, df_excel, service_name):
 
     except Exception as e:
         logger.warning("Error inside Filtering Function: %s", e)
-        print(f"Error inside Filtering Function: {e}")
+        # print(f"Error inside Filtering Function: {e}")
         message = "Error in Filteration"
         return message
 

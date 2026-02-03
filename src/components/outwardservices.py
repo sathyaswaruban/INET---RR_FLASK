@@ -605,7 +605,7 @@ def Pannsdl_service(start_date, end_date, service_name):
         """
         Select u.apna_id as IHUB_USERNAME,pn.application_no AS VENDOR_REFERENCE,pn.amount as HUB_AMOUNT,pn.status as service_status,DATE(pn.post_dt) as SERVICE_DATE from iti_portal.pan_nsdl pn
         LEFT JOIN iti_portal.users u on u.id = pn.users_id 
-        where DATE(pn.post_dt) BETWEEN :start_date and :end_date and pn.application_no IS NOT NULL"""
+        where DATE(pn.update_dt) BETWEEN :start_date and :end_date and pn.application_no IS NOT NULL"""
     )
     params = {"start_date": start_date, "end_date": end_date}
     try:

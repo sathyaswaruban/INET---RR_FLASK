@@ -352,12 +352,12 @@ def vendorexcel_reconciliation(
                 .sum()
                 .rename(columns={"AMOUNT": "SUM_AMOUNT"})
             )
-            print("Withdrawal Grouped Columns:", withdrawal_grouped.columns.tolist())
+            # print("Withdrawal Grouped Columns:", withdrawal_grouped.columns.tolist())
 
             merged_step1 = withdrawal_grouped.merge(
                 ledger_df, left_on="SETTLED_ID", right_on="SNO", how="inner"
             )
-            print("Merged Step 1 Columns:", merged_step1.columns.tolist())
+            # print("Merged Step 1 Columns:", merged_step1.columns.tolist())
             # Amount mismatch handling
             amount_mismatch_rows = merged_step1[
                 merged_step1["SUM_AMOUNT"] != merged_step1["AMOUNT_LEDGER"]
@@ -1354,8 +1354,8 @@ def vendorexcel_reconciliation(
 
             credit_count = ledger_df[ledger_df["USED AMOUNT"] < 0].shape[0]
 
-            print(matched_df)
-            print(mismatched_df)
+            # print(matched_df)
+            # print(mismatched_df)
 
             result_data = {
                 "ledger_count": ledger_count,

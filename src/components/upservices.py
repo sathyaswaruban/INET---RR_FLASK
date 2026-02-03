@@ -212,7 +212,7 @@ def filtering_Data(df_db, df_excel, service_name):
 
     except Exception as e:
         logger.warning("Error inside Filtering Function: %s", e)
-        print(f"Error inside Filtering Function: {e}")
+        # print(f"Error inside Filtering Function: {e}")
         message = "Error in Filteration"
         return message
 

@@ -17,8 +17,8 @@ app.secret_key = "inet_secret_key"
 
 
 # Configure CORS
-# CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
-CORS(app, supports_credentials=True, origins=["http://192.168.1.157:8300"])
+CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+# CORS(app, supports_credentials=True, origins=["http://192.168.1.157:8300"])
 
 
 # Constants
@@ -268,12 +268,28 @@ def get_ebo_detailed_data() -> tuple:
             "tenant_name": request.form["tenantName"],
             "ebo_status": request.form.get("status"),
         }
+
+        # 🔹 normalize ebo_status
+        ebo_status = request_data["ebo_status"]
+
+        if not ebo_status or ebo_status.strip() == "":
+            ebo_status = "active"
+
+        TENANTS_WITHOUT_STATUS = [
+            "ITI Chitrakoot PS Report",
+            "UP-edist Sultanpur PS Report From 2025",
+        ]
+
+        if request_data["tenant_name"] in TENANTS_WITHOUT_STATUS:
+            ebo_status = "psreport"
+
+        # 🔹 update request_data
+        request_data["ebo_status"] = ebo_status
         result = ebodetailed_data(**request_data)
         if isinstance(result, str):
             return handler("", result, "ebodetailed_data")
         else:
             processed = process_result(result, "ebodetailed_data")
-            print(processed)
         return processed
     except Exception as e:
         logger.error(
@@ -282,5 +298,5 @@ def get_ebo_detailed_data() -> tuple:
         return jsonify(handler(None, FAILURE_MESSAGE, "inet_count"))
 
 
-# if __name__ == "__main__":
-#     app.run(debug=True, host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)

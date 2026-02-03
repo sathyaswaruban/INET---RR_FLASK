@@ -89,7 +89,6 @@ def bbps_data_entry(start_date, end_date, service_name, df_excel):
         result["CreationTs"] = result["CreationTs"].apply(
             lambda x: x.strftime("%Y-%m-%d %H:%M:%S.%f")
         )
-        print(result.shape[0])
         result = result.to_dict(orient="records")
     except SQLAlchemyError as e:
         logger.error(f"Database error in bbps_data_entry(): {e}")

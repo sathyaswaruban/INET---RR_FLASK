@@ -21,7 +21,10 @@ from components.inwardservice import matm_Service, aeps_Service
 
 # Service configuration constants
 SERVICE_CONFIGS = {
-    "RECHARGE": {"required_columns": ["REFID"], "service_func": recharge_Service},
+    "RECHARGE": {
+        "required_columns": ["REFID"],
+        "service_func": recharge_Service,
+    },
     "BBPS": {
         "status_mapping": {
             "Successful": "success",
@@ -44,21 +47,27 @@ SERVICE_CONFIGS = {
         ),
         "service_func": lic_service,
     },
+    # refunded -> failed, else success
     "PANUTI": {
         "status_processing": lambda df: (
             df["VENDOR_STATUS"]
             .astype(str)
-            .apply(lambda x: "failed" if "refunded" in x.lower() else "success")
+            .str.lower()
+            .str.contains("failure|refunded", regex=True, na=False)
+            .map({True: "failed", False: "success"})
             if "VENDOR_STATUS" in df.columns
             else None
         ),
         "service_func": Panuti_service,
     },
+    # accepted -> success, else failed
     "PANNSDL": {
         "status_processing": lambda df: (
             df["VENDOR_STATUS"]
             .astype(str)
-            .apply(lambda x: "success" if "accepted" in x.lower() else "failed")
+            .str.lower()
+            .str.contains("accepted", na=False)
+            .map({True: "success", False: "failed"})
             if "VENDOR_STATUS" in df.columns
             else None
         ),
@@ -95,11 +104,13 @@ SERVICE_CONFIGS = {
             if all(col in df.columns for col in ["TID", "REFID", "DEVICE"])
             else df.copy()
         ),
+        # auth_success -> success, else failed
         "status_processing": lambda df: (
             df["VENDOR_STATUS"]
             .astype(str)
-            .fillna("failed")
-            .apply(lambda x: "success" if "auth_success" in x.lower() else "failed")
+            .str.lower()
+            .str.contains("auth_success", na=False)
+            .map({True: "success", False: "failed"})
             if "VENDOR_STATUS" in df.columns
             else None
         ),

@@ -113,7 +113,6 @@ def irctc(start_date, end_date, service_name):
         if irctc_df.empty:
             logger.warning(f"No data returned for service: {service_name}")
             return pd.DataFrame()
-        print(irctc_df.shape[0])
         irctc_df = irctc_df.to_dict(orient="records")
     except SQLAlchemyError as e:
         logger.error(f"Database error in bbps_data_entry(): {e}")

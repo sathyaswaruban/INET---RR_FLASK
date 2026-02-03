@@ -107,6 +107,7 @@ def ebodetailed_data(from_date=None, to_date=None, tenant_name=None, ebo_status=
     try:
         tenant_type = SERVICE_CONFIGS[tenant_name]
         # Debugging line to check tenant type
+
         status = ebo_status
         if status not in tenant_type["ebo_status"]:
             logger.warning(f"Invalid EBO status: {status}")
@@ -116,14 +117,20 @@ def ebodetailed_data(from_date=None, to_date=None, tenant_name=None, ebo_status=
             query = tenant_type["activequery"]
         elif status == "emi-not-paid":
             query = tenant_type["inactivequery_emi"]
+        elif status == "psreport":
+            query = tenant_type["query"]
         else:
             query = tenant_type["inactivequery"]
         logger.info(f"Using query for tenant: {tenant_name} with status: {status}")
         params = {"from_date": from_date, "to_date": to_date}
         df = execute_sql_with_retry(text(query), params=params)
-        df["Expiry_Date"] = pd.to_datetime(
-            df["Expiry_Date"], errors="coerce"
-        ).dt.strftime("%Y-%m-%d")
+        if tenant_name not in [
+            "ITI Chitrakoot PS Report",
+            "UP-edist Sultanpur PS Report From 2025",
+        ]:
+            df["Expiry_Date"] = pd.to_datetime(
+                df["Expiry_Date"], errors="coerce"
+            ).dt.strftime("%Y-%m-%d")
         if df.empty:
             logger.warning(f"No data found for EBO Detailed Data for {tenant_type}")
             return "No data found"
@@ -258,6 +265,105 @@ SERVICE_CONFIGS = {
                 left join iti_portal.users_up uu on u.id =uu.users_id
                 where u.apna_id  like 'UPPS%'
                     ) a where YEAR(Expiry_date) !='1971' AND DATE(Expiry_date) < :from_date""",
+        "service_function": ebodetailed_data,
+    },
+    "ITI Chitrakoot PS Report": {
+        "ebo_status": "psreport",
+        "query": """   WITH cte AS (
+                SELECT
+                    u.id,
+                    u.apna_id,
+                    u.f_name,
+                    u.phone_no,
+                    uu.rural_gram_panchyat,
+                    uu.rural_block,
+                    ua.main_tb_amt as main_tb_bal_amt,
+                    COUNT(bt.reference_id) AS transaction_count,
+                    sum(bt.trans_amt) as bt_transamount
+                FROM iti_portal.users u
+                LEFT JOIN iti_portal.users_up uu
+                    ON u.id = uu.users_id
+                LEFT JOIN iti_portal.user_account ua
+                    ON ua.users_id = u.id
+                LEFT JOIN iti_portal.bo_transactions bt
+                    ON bt.user_id = u.id
+                AND bt.mas_sub_cat_id = 111
+                AND bt.func_desc LIKE 'UP G2C%'
+                AND bt.post_dt >=  :from_date
+                AND bt.post_dt < DATE_ADD(:to_date , INTERVAL 1 DAY)
+                WHERE uu.janseva_type = 2
+                GROUP BY
+                    u.id,
+                    u.apna_id,
+                    u.f_name,
+                    u.phone_no
+            )
+
+            SELECT
+                cte.*,
+                COALESCE(SUM(ait.trans_amt), 0) AS Total_wallet_topup_amount
+            FROM cte
+            LEFT JOIN iti_portal.axis_imps_trans ait
+                ON ait.users_id = cte.id
+                AND ait.post_dt >=  :from_date
+                AND ait.post_dt < DATE_ADD(:to_date , INTERVAL 1 DAY)
+            GROUP BY
+                cte.id,
+                cte.apna_id,
+                cte.f_name,
+                cte.phone_no""",
+        "service_function": ebodetailed_data,
+    },
+    "UP-edist Sultanpur PS Report From 2025": {
+        "ebo_status": "psreport",
+        "query": """SELECT 
+                u.UserName,
+                u.FirstName,
+                u.MobileNo,
+                sd.Name AS Rural_block,
+                gp.Name AS rural_grampanchayat,
+                ed.Id AS EboDetailId,
+                COALESCE(CAST(udt.total_amount AS DECIMAL(18,2)), 0) AS totalTransamount,
+    COALESCE(udt.trans_count, 0) AS total_trans_count,
+    COALESCE(CAST(udsw.total_subwallet_amount AS DECIMAL(18,2)), 0) AS total_subwallet_amount,
+    COALESCE(udsw.subwallet_count, 0) AS total_subwallet_trans_count
+            FROM tenantinetcsc.`User` u
+            LEFT JOIN tenantinetcsc.EboDetail ed 
+                ON u.Id = ed.UserId 
+            LEFT JOIN tenantinetcsc.SubDistrict sd 
+                ON sd.Id = ed.SubDistrictId
+            LEFT JOIN tenantinetcsc.GramPanchayath gp 
+                ON gp.Id = ed.GramPanchayathId
+            LEFT JOIN (
+                SELECT 
+                    EboDetailId,
+                    SUM(Amount) AS total_amount,
+                    COUNT(Id) AS trans_count
+                FROM tenantinetcsc.UpeDistrictTransaction
+                WHERE creationTs >= :from_date
+                AND creationTs < DATE_ADD(:to_date, INTERVAL 1 DAY)
+                GROUP BY EboDetailId
+            ) udt 
+                ON udt.EboDetailId = ed.Id
+            LEFT JOIN (
+                SELECT 
+                    t.EboDetailId,
+                    SUM(sw.Amount) AS total_subwallet_amount,
+                    COUNT(sw.Id) AS subwallet_count
+                FROM tenantinetcsc.UpeDistrictTransaction t
+                LEFT JOIN tenantinetcsc.UpeDistrictSubWallet sw
+                    ON sw.UpeDistrictTransactionId = t.Id
+                AND sw.creationTs >= :from_date
+                AND sw.creationTs < DATE_ADD(:to_date, INTERVAL 1 DAY)
+                WHERE t.creationTs >= :from_date
+                AND t.creationTs < DATE_ADD(:to_date, INTERVAL 1 DAY)
+                GROUP BY t.EboDetailId
+            ) udsw 
+                ON udsw.EboDetailId = ed.Id
+            WHERE 
+                u.UserRoleId = 2
+                AND u.UserName LIKE '%UPPS%';
+""",
         "service_function": ebodetailed_data,
     },
 }
